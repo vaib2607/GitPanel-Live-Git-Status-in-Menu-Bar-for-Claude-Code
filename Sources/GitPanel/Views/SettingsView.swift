@@ -1,10 +1,10 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @ObservedObject var settings: AppSettings
+    @Bindable var settings: AppSettings
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 8) {
             Text("Settings")
                 .font(.system(size: 13, weight: .medium, design: .monospaced))
 
@@ -26,7 +26,7 @@ struct SettingsView: View {
 
             Spacer()
         }
-        .padding(20)
+        .padding(16)
         .frame(width: 360, height: 200)
         .background(Color(NSColor.windowBackgroundColor))
     }

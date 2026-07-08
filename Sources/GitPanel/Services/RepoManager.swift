@@ -1,8 +1,9 @@
 import Foundation
 import SwiftUI
 
-final class RepoManager: ObservableObject {
-    @Published var repoURL: URL
+@Observable final class RepoManager {
+    static let shared = RepoManager()
+    var repoURL: URL
 
     private let storageKey = "selectedRepoPath"
 

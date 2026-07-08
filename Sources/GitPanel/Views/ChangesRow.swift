@@ -1,14 +1,14 @@
 import SwiftUI
 
 struct ChangesRow: View {
-    let status: GitStatus
+    let state: GitState
 
     var body: some View {
         InfoRow(
             icon: "doc.plaintext",
             title: "Changes",
-            value: status.hasChanges ? "\(status.total)" : "No changes",
-            valueColor: status.hasChanges ? .primary : .secondary
+            value: state.hasChanges ? "\(state.linesAdded + state.linesDeleted) lines" : "No changes",
+            valueColor: state.hasChanges ? .primary : .secondary
         )
     }
 }

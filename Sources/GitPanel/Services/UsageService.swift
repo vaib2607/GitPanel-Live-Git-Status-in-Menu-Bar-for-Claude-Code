@@ -1,21 +1,12 @@
 import Foundation
 
-struct UsageData {
-    let inputTokens: Int
-    let outputTokens: Int
-    let cacheReadTokens: Int
-    let cacheCreationTokens: Int
-    let estimatedCost: Double
-    let cursorPlan: String?
-    let source: Source
-
-    enum Source { case claude, cursor, manual, none }
-
-    var hasData: Bool { source != .none }
-}
-
 private struct TokenCounts {
-    var input = 0, output = 0, cacheRead = 0, cacheCreation = 0
+    var input = 0
+    var output = 0
+    var cacheRead = 0
+    var cacheCreation = 0
+
+    var total: Int { input + output + cacheRead + cacheCreation }
 }
 
 private struct ModelPrice {
@@ -26,17 +17,14 @@ private struct ModelPrice {
 
     func cost(for t: TokenCounts) -> Double {
         Double(t.input) * input
-      + Double(t.output) * output
-      + Double(t.cacheRead) * cacheRead
-      + Double(t.cacheCreation) * cacheCreation
+        + Double(t.output) * output
+        + Double(t.cacheRead) * cacheRead
+        + Double(t.cacheCreation) * cacheCreation
     }
 }
 
-/// Reads real Claude Code usage offline from ~/.claude/projects/**/*.jsonl
-/// and prices it with the LiteLLM model_prices_and_context_window.json
-/// (bundled; embedded fallback if the resource is missing).
 struct UsageService {
-    static func compute(manual: String) -> UsageData {
+    static func compute() async throws -> UsageData {
         var byModel: [String: TokenCounts] = [:]
         let base = (NSHomeDirectory() as NSString).appendingPathComponent(".claude/projects")
 
@@ -56,6 +44,8 @@ struct UsageService {
         let table = loadTable()
         var cost = 0.0
         var total = TokenCounts()
+        var topModel = ""
+        var topCount = 0
         for (model, t) in byModel {
             total.input += t.input
             total.output += t.output
@@ -64,28 +54,20 @@ struct UsageService {
             if let p = price(for: model, table: table) {
                 cost += p.cost(for: t)
             }
+            if t.total > topCount {
+                topCount = t.total
+                topModel = model
+            }
         }
 
-        let cursorPlan = readCursorPlan()
-        let source: UsageData.Source
-        if total.input + total.output > 0 {
-            source = .claude
-        } else if !manual.isEmpty {
-            source = .manual
-        } else if cursorPlan != nil {
-            source = .cursor
-        } else {
-            source = .none
-        }
+        let cursorPlan = try await readCursorPlan()
 
         return UsageData(
-            inputTokens: total.input,
-            outputTokens: total.output,
-            cacheReadTokens: total.cacheRead,
-            cacheCreationTokens: total.cacheCreation,
-            estimatedCost: cost,
-            cursorPlan: cursorPlan,
-            source: source
+            tokens: total.total,
+            cost: cost,
+            model: topModel,
+            plan: cursorPlan ?? "",
+            isUsingPlan: cursorPlan != nil
         )
     }
 
@@ -137,23 +119,22 @@ struct UsageService {
     }
 
     private static let fallbackTable: [String: ModelPrice] = [
-        "claude-opus-4-8":       ModelPrice(input: 5e-6,  output: 2.5e-5, cacheRead: 5e-7,  cacheCreation: 6.25e-6),
-        "claude-opus-4-7":       ModelPrice(input: 5e-6,  output: 2.5e-5, cacheRead: 5e-7,  cacheCreation: 6.25e-6),
-        "claude-opus-4-6":       ModelPrice(input: 5e-6,  output: 2.5e-5, cacheRead: 5e-7,  cacheCreation: 6.25e-6),
-        "claude-sonnet-5":       ModelPrice(input: 2e-6,  output: 1e-5,  cacheRead: 2e-7,  cacheCreation: 2.5e-6),
-        "claude-sonnet-4-6":     ModelPrice(input: 3e-6,  output: 1.5e-5,cacheRead: 3e-7,  cacheCreation: 3.75e-6),
-        "claude-haiku-4-5-20251001": ModelPrice(input: 1e-6, output: 5e-6, cacheRead: 1e-7, cacheCreation: 1.25e-6)
+        "claude-opus-4-8":           ModelPrice(input: 5e-6,  output: 2.5e-5, cacheRead: 5e-7,  cacheCreation: 6.25e-6),
+        "claude-opus-4-7":           ModelPrice(input: 5e-6,  output: 2.5e-5, cacheRead: 5e-7,  cacheCreation: 6.25e-6),
+        "claude-opus-4-6":           ModelPrice(input: 5e-6,  output: 2.5e-5, cacheRead: 5e-7,  cacheCreation: 6.25e-6),
+        "claude-sonnet-5":           ModelPrice(input: 2e-6,  output: 1e-5,  cacheRead: 2e-7,  cacheCreation: 2.5e-6),
+        "claude-sonnet-4-6":         ModelPrice(input: 3e-6,  output: 1.5e-5, cacheRead: 3e-7,  cacheCreation: 3.75e-6),
+        "claude-haiku-4-5-20251001": ModelPrice(input: 1e-6,  output: 5e-6,  cacheRead: 1e-7,  cacheCreation: 1.25e-6)
     ]
 
-    private static func readCursorPlan() -> String? {
+    private static func readCursorPlan() async throws -> String? {
         let db = (NSHomeDirectory() as NSString)
             .appendingPathComponent("Library/Application Support/Cursor/User/globalStorage/state.vscdb")
         guard FileManager.default.fileExists(atPath: db) else { return nil }
-        let r = ShellRunner.run(
-            executable: "/usr/bin/sqlite3",
-            arguments: [db, "SELECT value FROM ItemTable WHERE key='cursorAuth/stripeMembershipType';"]
+        let output = try await ShellRunner.run(
+            "sqlite3 -readonly '\(db)' \"SELECT value FROM ItemTable WHERE key='cursorPlusSubscription'\""
         )
-        var v = r.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        var v = output.trimmingCharacters(in: .whitespacesAndNewlines)
         if v.hasPrefix("\"") { v = String(v.dropFirst()) }
         if v.hasSuffix("\"") { v = String(v.dropLast()) }
         let known = ["free", "pro", "team", "business", "enterprise"]

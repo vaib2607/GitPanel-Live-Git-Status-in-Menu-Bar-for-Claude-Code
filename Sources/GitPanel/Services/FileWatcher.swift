@@ -1,109 +1,87 @@
 import Foundation
-import Combine
 
 final class FileWatcher {
-    private let repoURL: URL
-    private let onChange: () -> Void
+    var onIndexChange: (() -> Void)?
 
-    private var fileSource: DispatchSourceFileSystemObject?
-    private var fallbackTimer: Timer?
-    private var lastIndexSignature: String = ""
-    private var debounceWork: DispatchWorkItem?
-    private var debounceCount = 0
+    private var stream: FSEventStreamRef?
+    private let queue = DispatchQueue.global(qos: .utility)
 
-    private let debounceInterval: TimeInterval = 0.3
-    private let fallbackInterval: TimeInterval = 8.0
-    private let indexPath: String
+    func startWatching(repo: URL) {
+        stop()
 
-    private static let allEvents: DispatchSource.FileSystemEvent = [
-        .write, .rename, .delete, .attrib, .extend, .link, .revoke
-    ]
+        let gitDir = repo.appendingPathComponent(".git").path
 
-    init(repoURL: URL, onChange: @escaping () -> Void) {
-        self.repoURL = repoURL
-        self.onChange = onChange
-        self.indexPath = repoURL.appendingPathComponent(".git/index").path
-    }
+        var context = FSEventStreamContext(
+            version: 0,
+            info: Unmanaged.passUnretained(self).toOpaque(),
+            retain: nil,
+            release: nil,
+            copyDescription: nil
+        )
 
-    func start() {
-        lastIndexSignature = fileSignature()
+        let pathsToWatch = [gitDir as CFString]
 
-        setupFSEvents()
-        startFallbackTimer()
+        guard let eventStream = FSEventStreamCreate(
+            nil,
+            fileWatcherCallback,
+            &context,
+            pathsToWatch as CFArray,
+            FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
+            0.3,
+            FSEventStreamCreateFlags(kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagFileEvents)
+        ) else {
+            return
+        }
+
+        stream = eventStream
+        FSEventStreamSetDispatchQueue(eventStream, queue)
+        FSEventStreamStart(eventStream)
     }
 
     func stop() {
-        fileSource?.cancel()
-        fileSource = nil
-        fallbackTimer?.invalidate()
-        fallbackTimer = nil
-        debounceWork?.cancel()
-        debounceWork = nil
+        guard let stream = stream else { return }
+        FSEventStreamStop(stream)
+        FSEventStreamInvalidate(stream)
+        FSEventStreamRelease(stream)
+        self.stream = nil
     }
 
-    // MARK: - FSEvents via DispatchSource
-
-    private func setupFSEvents() {
-        let fd = open(indexPath, O_EVTONLY)
-        guard fd >= 0 else { return }
-
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: FileWatcher.allEvents,
-            queue: .global(qos: .utility)
-        )
-
-        source.setEventHandler { [weak self] in
-            self?.scheduleDebouncedRefresh()
-        }
-
-        source.setCancelHandler {
-            Darwin.close(fd)
-        }
-
-        fileSource = source
-        source.resume()
+    deinit {
+        stop()
     }
+}
 
-    // MARK: - Debounce
+private func fileWatcherCallback(
+    _ allocator: OpaquePointer,
+    _ info: UnsafeMutableRawPointer?,
+    _ numEvents: Int,
+    _ eventPaths: UnsafeMutableRawPointer,
+    _ eventFlags: UnsafePointer<FSEventStreamEventFlags>,
+    _ eventIds: UnsafePointer<FSEventStreamEventId>
+) {
+    guard let pointer = info else { return }
+    let watcher = Unmanaged<FileWatcher>.fromOpaque(pointer).takeUnretainedValue()
 
-    private func scheduleDebouncedRefresh() {
-        debounceWork?.cancel()
-        debounceCount += 1
+    let paths = eventPaths.bindMemory(to: UnsafePointer<CChar>.self, capacity: numEvents)
+    let count = Int(numEvents)
 
-        let work = DispatchWorkItem { [weak self] in
-            self?.performCheck()
-        }
-        debounceWork = work
+    for i in 0..<count {
+        let flags = eventFlags[i]
+        let path = String(cString: paths[i])
 
-        let delay = debounceCount < 3 ? debounceInterval : debounceInterval * 2
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay, execute: work)
-    }
+        let isDir = flags & UInt32(kFSEventStreamEventFlagItemIsDir) != 0
+        let isFile = flags & UInt32(kFSEventStreamEventFlagItemIsFile) != 0
+        let isModified = flags & UInt32(kFSEventStreamEventFlagItemModified) != 0
+        let isCreated = flags & UInt32(kFSEventStreamEventFlagItemCreated) != 0
+        let isRenamed = flags & UInt32(kFSEventStreamEventFlagItemRenamed) != 0
 
-    private func performCheck() {
-        let sig = fileSignature()
-        if sig != lastIndexSignature {
-            lastIndexSignature = sig
-            DispatchQueue.main.async { [weak self] in
-                self?.onChange()
+        let isGitChange = path.contains("/.git/")
+
+        if isGitChange && (isFile || (isDir && (isCreated || isRenamed || isModified))) {
+            Task { @MainActor in
+                watcher.onIndexChange?()
             }
+            return
         }
-        debounceCount = 0
-    }
-
-    // MARK: - Fallback timer (8s)
-
-    private func startFallbackTimer() {
-        fallbackTimer = Timer.scheduledTimer(withTimeInterval: fallbackInterval, repeats: true) { [weak self] _ in
-            self?.performCheck()
-        }
-    }
-
-    private func fileSignature() -> String {
-        let attrs = try? FileManager.default.attributesOfItem(atPath: indexPath)
-        if let date = attrs?[.modificationDate] as? Date {
-            return "\(date.timeIntervalSince1970)"
-        }
-        return "none"
     }
 }

@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct EnvironmentMenuView: View {
-    @ObservedObject var viewModel: EnvironmentViewModel
+    @Bindable var viewModel: GitPanelViewModel
     let onBack: () -> Void
     let onShowUsage: () -> Void
     let onShowRepoInfo: () -> Void
@@ -92,6 +92,8 @@ struct EnvironmentMenuView: View {
         case .local: return "laptopcomputer"
         case .codex: return "globe"
         case .cloud: return "cloud"
+        case .production: return "checkmark.circle"
+        case .development: return "wrench.and.screwdriver"
         }
     }
 }

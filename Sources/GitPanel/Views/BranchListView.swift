@@ -1,24 +1,18 @@
 import SwiftUI
 
 struct BranchListView: View {
-    @ObservedObject var viewModel: EnvironmentViewModel
+    @Bindable var viewModel: GitPanelViewModel
     let onBack: () -> Void
 
-    @State private var search = ""
-    @State private var newBranch = ""
-
-    var filtered: [GitBranch] {
-        if search.isEmpty { return viewModel.branches }
-        return viewModel.branches.filter { $0.name.localizedCaseInsensitiveContains(search) }
-    }
+    @State private var hoveredBranchID: String? = nil
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
+        VStack(spacing: 4) {
+            HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(.secondary)
-                TextField("Search branches", text: $search)
+                TextField("Search branches", text: $viewModel.branchSearchText)
                     .textFieldStyle(.plain)
                     .font(.system(size: 13, design: .monospaced))
             }
@@ -30,18 +24,18 @@ struct BranchListView: View {
             Divider()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 4) {
                     SectionHeader(title: "Branches")
                         .padding(.horizontal, 12)
                         .padding(.top, 8)
                         .padding(.bottom, 4)
 
-                    ForEach(filtered) { branch in
+                    ForEach(viewModel.filteredBranches) { branch in
                         Button {
-                            viewModel.checkout(branch)
+                            Task { await viewModel.checkout(branch) }
                             onBack()
                         } label: {
-                            HStack(spacing: 8) {
+                            HStack(spacing: 6) {
                                 Image(systemName: "arrow.branch")
                                     .font(.system(size: 12, design: .monospaced))
                                     .foregroundStyle(.secondary)
@@ -50,6 +44,18 @@ struct BranchListView: View {
                                     .font(.system(size: 13, design: .monospaced))
                                     .lineLimit(1)
                                 Spacer()
+                                if branch.ahead > 0 {
+                                    Text("\(branch.ahead)")
+                                        .font(.system(size: 11, design: .monospaced))
+                                        .foregroundStyle(.green)
+                                        .monospacedDigit()
+                                }
+                                if branch.behind > 0 {
+                                    Text("\(branch.behind)")
+                                        .font(.system(size: 11, design: .monospaced))
+                                        .foregroundStyle(.orange)
+                                        .monospacedDigit()
+                                }
                                 if branch.isCurrent {
                                     Image(systemName: "checkmark")
                                         .font(.system(size: 12, weight: .semibold, design: .monospaced))
@@ -58,12 +64,16 @@ struct BranchListView: View {
                             .contentShape(Rectangle())
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
+                            .background(hoveredBranchID == branch.id ? Color.accentColor.opacity(0.1) : Color.clear)
                         }
                         .buttonStyle(.plain)
                         .hoverable(radius: 8)
+                        .onHover { isHovering in
+                            hoveredBranchID = isHovering ? branch.id : nil
+                        }
                         .contextMenu {
                             Button("Checkout") {
-                                viewModel.checkout(branch)
+                                Task { await viewModel.checkout(branch) }
                                 onBack()
                             }
                             Button("Copy Name") {
@@ -73,12 +83,7 @@ struct BranchListView: View {
                             if !branch.isCurrent {
                                 Divider()
                                 Button("Delete", role: .destructive) {
-                                    _ = ShellRunner.run(
-                                        executable: GitService.gitPath,
-                                        arguments: ["branch", "-D", branch.name],
-                                        workingDirectory: viewModel.repoManager.repoURL
-                                    )
-                                    viewModel.refresh()
+                                    Task { await viewModel.deleteBranch(branch) }
                                 }
                             }
                         }
@@ -86,17 +91,17 @@ struct BranchListView: View {
 
                     Divider().padding(.vertical, 8)
 
-                    HStack(spacing: 8) {
+                    HStack(spacing: 6) {
                         Image(systemName: "plus")
                             .font(.system(size: 12, weight: .medium, design: .monospaced))
                             .foregroundStyle(.secondary)
-                        TextField("New branch name", text: $newBranch)
+                        TextField("New branch name", text: $viewModel.branchNameInput)
                             .textFieldStyle(.plain)
                             .font(.system(size: 13, design: .monospaced))
                         Button {
-                            guard !newBranch.isEmpty else { return }
-                            viewModel.createBranch(newBranch)
-                            newBranch = ""
+                            guard !viewModel.branchNameInput.isEmpty else { return }
+                            let name = viewModel.branchNameInput
+                            Task { await viewModel.createBranch(name) }
                             onBack()
                         } label: {
                             Text("Create")

@@ -5,11 +5,12 @@ enum PanelRoute {
 }
 
 struct EnvironmentPanel: View {
-    @ObservedObject var viewModel: EnvironmentViewModel
-    @ObservedObject var repoManager: RepoManager
+    var viewModel: GitPanelViewModel
+    var repoManager: RepoManager
     @State private var route: PanelRoute = .main
     @State private var showRepoPicker = false
     @State private var isDragTargeted = false
+    @State private var isHovered = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -24,7 +25,7 @@ struct EnvironmentPanel: View {
             case .environment:
                 EnvironmentMenuView(viewModel: viewModel, onBack: { route = .main }, onShowUsage: { route = .usage }, onShowRepoInfo: { route = .repositoryInfo })
             case .usage:
-                UsageView(settings: viewModel.settings, usage: viewModel.usage, onBack: { route = .main })
+                UsageView(viewModel: viewModel)
             case .repositoryInfo:
                 RepositoryInfoView(viewModel: viewModel, onBack: { route = .main })
             }
@@ -45,9 +46,15 @@ struct EnvironmentPanel: View {
         .sheet(isPresented: $showRepoPicker) {
             RepoPicker(onPicked: { url in
                 repoManager.setRepo(url)
-                viewModel.refresh()
+                Task { await viewModel.refresh() }
                 viewModel.startWatching()
             })
+        }
+        .overlay(alignment: .top) {
+            if let banner = viewModel.banner {
+                BannerView(banner: banner)
+                    .padding(12)
+            }
         }
     }
 
@@ -108,30 +115,24 @@ struct EnvironmentPanel: View {
             if !viewModel.isGitRepo {
                 notAGitRepoView
             } else {
-                // Banner
-                if let banner = viewModel.banner {
-                    BannerView(banner: banner)
-                        .padding(.bottom, 8)
-                }
-
                 // Header card: repo name + branch + state
                 repoHeaderCard
 
                 // Diff summary
-                DiffSummaryView(diff: viewModel.snapshot.diff)
+                DiffSummaryView(state: viewModel.state)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
 
                 // File stats chips
-                if !viewModel.snapshot.diff.isClean {
-                    FileStatsView(diff: viewModel.snapshot.diff)
+                if viewModel.state.hasChanges {
+                    FileStatsView(state: viewModel.state)
                         .padding(.horizontal, 12)
                         .padding(.bottom, 8)
                 }
 
                 // Ahead/behind badges
                 if viewModel.ahead > 0 || viewModel.behind > 0 {
-                    AheadBehindBadges(ahead: viewModel.ahead, behind: viewModel.behind)
+                    AheadBehindBadges(state: viewModel.state)
                         .padding(.horizontal, 12)
                         .padding(.bottom, 8)
                 }
@@ -149,14 +150,11 @@ struct EnvironmentPanel: View {
                 PanelDivider()
 
                 // PR status
-                PRStatusRow(prStatus: viewModel.prStatus)
+                PRStatusRow(viewModel: viewModel)
 
                 // Footer actions
                 PanelDivider()
-                FooterActionsView(
-                    onSettings: { NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil) },
-                    onQuit: { NSApp.terminate(nil) }
-                )
+                FooterActionsView(viewModel: viewModel)
             }
         }
     }
@@ -174,7 +172,8 @@ struct EnvironmentPanel: View {
     }
 
     private var repoHeaderCard: some View {
-        HStack(spacing: 10) {
+        @State var isRowHovered = false
+        return HStack(spacing: 8) {
             // Repo icon
             Image(systemName: "folder.fill")
                 .font(.system(size: 18, design: .monospaced))
@@ -182,7 +181,7 @@ struct EnvironmentPanel: View {
                 .frame(width: 24)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(viewModel.snapshot.name)
+                Text(viewModel.state.repoName)
                     .font(.system(size: 13, weight: .medium, design: .monospaced))
                     .lineLimit(1)
                 HStack(spacing: 6) {
@@ -190,7 +189,7 @@ struct EnvironmentPanel: View {
                         .font(.system(size: 12, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
-                    RepoStateBadge(state: viewModel.snapshot.state)
+                    RepoStateBadge(state: viewModel.state.repoState)
                 }
             }
             Spacer()
@@ -206,8 +205,10 @@ struct EnvironmentPanel: View {
                 .fill(Color(nsColor: .controlBackgroundColor))
         )
         .padding(.bottom, 8)
+        .contentShape(Rectangle())
+        .onHover { hovering in isRowHovered = hovering }
         .contextMenu {
-            Button("Refresh") { viewModel.refresh() }
+            Button("Refresh") { Task { await viewModel.refresh() } }
             Divider()
             Button("Open in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([viewModel.repoManager.repoURL])
@@ -225,7 +226,7 @@ struct EnvironmentPanel: View {
 // MARK: - Drag & Drop
 
 struct DropHandler: DropDelegate {
-    let viewModel: EnvironmentViewModel
+    let viewModel: GitPanelViewModel
     @Binding var isTargeted: Bool
 
     func performDrop(info: DropInfo) -> Bool {
@@ -235,7 +236,7 @@ struct DropHandler: DropDelegate {
             guard let data = item as? Data,
                   let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
             DispatchQueue.main.async {
-                self.stageFile(at: url)
+                Task { await self.viewModel.stageFile(url.path) }
             }
         }
         return true
@@ -247,24 +248,6 @@ struct DropHandler: DropDelegate {
 
     func dropExited(info: DropInfo) {
         isTargeted = false
-    }
-
-    private func stageFile(at url: URL) {
-        let repo = viewModel.repoManager.repoURL
-        let relativePath = url.path.replacingOccurrences(of: repo.path + "/", with: "")
-        _ = ShellRunner.run(
-            executable: GitService.gitPath,
-            arguments: ["add", relativePath],
-            workingDirectory: repo
-        )
-        viewModel.refresh()
-    }
-}
-
-struct PanelDivider: View {
-    var body: some View {
-        Divider()
-            .padding(.vertical, 8)
     }
 }
 

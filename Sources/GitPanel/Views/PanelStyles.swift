@@ -3,11 +3,11 @@ import SwiftUI
 // MARK: - Diff summary view (CodexBar-style)
 
 struct DiffSummaryView: View {
-    let diff: DiffStats
+    let state: GitState
 
     var body: some View {
-        HStack(spacing: 8) {
-            if diff.isClean {
+        HStack(spacing: 4) {
+            if !state.hasChanges {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(.green)
                     .font(.system(size: 13))
@@ -15,29 +15,28 @@ struct DiffSummaryView: View {
                     .font(.system(size: 13, design: .monospaced))
                     .foregroundStyle(.secondary)
             } else {
-                if diff.totalAdded > 0 {
+                if state.linesAdded > 0 {
                     HStack(spacing: 3) {
                         Image(systemName: "plus.circle.fill")
                             .foregroundStyle(.green)
                             .font(.system(size: 13))
-                        Text("\(diff.totalAdded)")
+                        Text("\(state.linesAdded)")
                             .font(.system(size: 13, weight: .medium, design: .monospaced))
+                            .monospacedDigit()
                             .foregroundStyle(.green)
                     }
                 }
-                if diff.totalDeleted > 0 {
+                if state.linesDeleted > 0 {
                     HStack(spacing: 3) {
                         Image(systemName: "minus.circle.fill")
                             .foregroundStyle(.red)
                             .font(.system(size: 13))
-                        Text("\(diff.totalDeleted)")
+                        Text("\(state.linesDeleted)")
                             .font(.system(size: 13, weight: .medium, design: .monospaced))
+                            .monospacedDigit()
                             .foregroundStyle(.red)
                     }
                 }
-                Text("\(diff.filesChanged) file\(diff.filesChanged == 1 ? "" : "s")")
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -46,21 +45,23 @@ struct DiffSummaryView: View {
 // MARK: - File stats chips
 
 struct FileStatsView: View {
-    let diff: DiffStats
+    let state: GitState
 
     var body: some View {
-        HStack(spacing: 6) {
-            if diff.stagedFiles > 0 {
-                statChip(count: diff.stagedFiles, label: "staged", color: .blue)
-            }
-            if diff.unstagedFiles > 0 {
-                statChip(count: diff.unstagedFiles, label: "modified", color: .orange)
-            }
-            if diff.untrackedFiles > 0 {
-                statChip(count: diff.untrackedFiles, label: "new", color: .green)
-            }
-            if diff.conflicts > 0 {
-                statChip(count: diff.conflicts, label: "conflicts", color: .red)
+        HStack(spacing: 4) {
+            if state.hasChanges {
+                if state.stagedCount > 0 {
+                    statChip(count: state.stagedCount, label: "staged", color: .blue)
+                }
+                if state.unstagedCount > 0 {
+                    statChip(count: state.unstagedCount, label: "modified", color: .orange)
+                }
+                if state.untrackedCount > 0 {
+                    statChip(count: state.untrackedCount, label: "new", color: .green)
+                }
+                if state.conflictCount > 0 {
+                    statChip(count: state.conflictCount, label: "conflicts", color: .red)
+                }
             }
         }
     }
@@ -69,6 +70,7 @@ struct FileStatsView: View {
         HStack(spacing: 3) {
             Text("\(count)")
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .monospacedDigit()
             Text(label)
                 .font(.system(size: 11, design: .monospaced))
         }
@@ -85,16 +87,15 @@ struct FileStatsView: View {
 // MARK: - Ahead/behind badges
 
 struct AheadBehindBadges: View {
-    let ahead: Int
-    let behind: Int
+    let state: GitState
 
     var body: some View {
-        HStack(spacing: 6) {
-            if ahead > 0 {
+        HStack(spacing: 4) {
+            if state.isAheadOfRemote {
                 HStack(spacing: 3) {
                     Image(systemName: "arrow.up")
                         .font(.system(size: 11, weight: .semibold))
-                    Text("\(ahead)")
+                    Text("ahead")
                         .font(.system(size: 11, weight: .semibold, design: .monospaced))
                 }
                 .padding(.horizontal, 6)
@@ -102,11 +103,11 @@ struct AheadBehindBadges: View {
                 .background(Capsule().fill(Color.orange.opacity(0.15)))
                 .foregroundStyle(.orange)
             }
-            if behind > 0 {
+            if state.isBehindRemote {
                 HStack(spacing: 3) {
                     Image(systemName: "arrow.down")
                         .font(.system(size: 11, weight: .semibold))
-                    Text("\(behind)")
+                    Text("behind")
                         .font(.system(size: 11, weight: .semibold, design: .monospaced))
                 }
                 .padding(.horizontal, 6)
@@ -125,9 +126,9 @@ struct RepoStateBadge: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Circle()
-                .fill(state.accentColor)
-                .frame(width: 6, height: 6)
+            Image(systemName: state.icon)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(state.color)
             Text(state.label)
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
         }
@@ -135,25 +136,26 @@ struct RepoStateBadge: View {
         .padding(.vertical, 3)
         .background(
             Capsule()
-                .fill(state.accentColor.opacity(0.12))
+                .fill(state.color.opacity(0.12))
         )
-        .foregroundStyle(state.accentColor)
+        .foregroundStyle(state.color)
     }
 }
 
 // MARK: - Footer actions view
 
 struct FooterActionsView: View {
-    let onSettings: () -> Void
-    let onQuit: () -> Void
+    let viewModel: GitPanelViewModel
 
     var body: some View {
         HStack(spacing: 8) {
-            Button(action: onSettings) {
+            Button {
+                Task { await viewModel.refresh() }
+            } label: {
                 HStack(spacing: 3) {
-                    Image(systemName: "gear")
+                    Image(systemName: "arrow.clockwise")
                         .font(.system(size: 11))
-                    Text("Settings")
+                    Text("Refresh")
                         .font(.system(size: 11, design: .monospaced))
                 }
             }
@@ -162,18 +164,43 @@ struct FooterActionsView: View {
             .padding(.vertical, 3)
             .background(Capsule().fill(Color(nsColor: .controlBackgroundColor)))
             .hoverable(radius: 4)
+            .contentShape(Rectangle())
 
             Spacer()
 
-            Button(action: onQuit) {
-                Text("Quit")
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.secondary)
+            Button {
+                Task { await viewModel.push() }
+            } label: {
+                HStack(spacing: 3) {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 11))
+                    Text("Push")
+                        .font(.system(size: 11, design: .monospaced))
+                }
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
+            .background(Capsule().fill(Color(nsColor: .controlBackgroundColor)))
             .hoverable(radius: 4)
+            .contentShape(Rectangle())
+
+            Button {
+                Task { await viewModel.pull() }
+            } label: {
+                HStack(spacing: 3) {
+                    Image(systemName: "arrow.down")
+                        .font(.system(size: 11))
+                    Text("Pull")
+                        .font(.system(size: 11, design: .monospaced))
+                }
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(Capsule().fill(Color(nsColor: .controlBackgroundColor)))
+            .hoverable(radius: 4)
+            .contentShape(Rectangle())
         }
     }
 }
@@ -200,6 +227,17 @@ extension View {
     }
 }
 
+// MARK: - Panel divider
+
+struct PanelDivider: View {
+    var body: some View {
+        Divider()
+            .foregroundStyle(.quaternary)
+    }
+}
+
+// MARK: - Section header
+
 struct SectionHeader: View {
     let title: String
 
@@ -211,6 +249,8 @@ struct SectionHeader: View {
     }
 }
 
+// MARK: - Info row
+
 struct InfoRow: View {
     let icon: String
     let title: String
@@ -218,7 +258,7 @@ struct InfoRow: View {
     var valueColor: Color = .secondary
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 4) {
             Image(systemName: icon)
                 .font(.system(size: 13, design: .monospaced))
                 .foregroundStyle(.secondary)
@@ -231,8 +271,11 @@ struct InfoRow: View {
                 .foregroundStyle(valueColor)
         }
         .frame(minHeight: 32)
+        .contentShape(Rectangle())
     }
 }
+
+// MARK: - Dropdown row
 
 struct DropdownRow: View {
     let icon: String
@@ -242,7 +285,7 @@ struct DropdownRow: View {
     let action: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 4) {
             Image(systemName: icon)
                 .font(.system(size: 13, design: .monospaced))
                 .foregroundStyle(.secondary)

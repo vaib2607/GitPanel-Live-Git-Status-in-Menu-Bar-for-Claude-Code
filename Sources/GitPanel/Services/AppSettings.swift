@@ -1,11 +1,12 @@
 import Foundation
 import SwiftUI
 
-final class AppSettings: ObservableObject {
-    @Published var usageEnabled: Bool {
+@Observable final class AppSettings {
+    static let shared = AppSettings()
+    var usageEnabled: Bool {
         didSet { UserDefaults.standard.set(usageEnabled, forKey: "usageEnabled") }
     }
-    @Published var usageRemaining: String {
+    var usageRemaining: String {
         didSet { UserDefaults.standard.set(usageRemaining, forKey: "usageRemaining") }
     }
 

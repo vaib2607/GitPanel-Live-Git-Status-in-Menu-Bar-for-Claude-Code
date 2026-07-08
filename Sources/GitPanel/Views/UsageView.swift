@@ -1,121 +1,90 @@
 import SwiftUI
 
 struct UsageView: View {
-    @ObservedObject var settings: AppSettings
-    let usage: UsageData
-    let onBack: () -> Void
+    @Bindable var viewModel: GitPanelViewModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            switch usage.source {
-            case .claude:
-                claudeBlock
-            case .cursor:
-                cursorBlock
-            case .manual:
-                manualBlock
-            case .none:
-                emptyBlock
+        let usage = viewModel.usage
+        let settings = viewModel.settings
+
+        VStack(alignment: .leading, spacing: 8) {
+            if usage.tokens > 0 || usage.cost > 0 {
+                HStack(spacing: 8) {
+                    Text(usage.model.isEmpty ? "Usage" : usage.model)
+                        .font(.system(size: 13, weight: .semibold, design: .monospaced))
+
+                    if usage.isUsingPlan, !usage.plan.isEmpty {
+                        Text(usage.plan)
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Capsule().fill(.quaternary))
+                    }
+                }
+
+                HStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Tokens")
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                        Text(formatTokens(usage.tokens))
+                            .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                            .monospacedDigit()
+                    }
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Cost")
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                        Text(String(format: "$%.2f", usage.cost))
+                            .font(.system(size: 24, weight: .light, design: .monospaced))
+                            .monospacedDigit()
+                    }
+
+                    Spacer()
+                }
+
+                Text("Offline estimate from local transcripts.")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("No usage data found.")
+                        .font(.system(size: 13, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                    Text("Usage is read from local transcripts.")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             Divider()
+
             VStack(alignment: .leading, spacing: 4) {
-                Text("Manual override")
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                TextField("e.g. 80%  ·  120 credits", text: $settings.usageRemaining)
+                HStack {
+                    Text("Manual override")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    if !settings.usageEnabled {
+                        Text("Manual")
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(.orange.opacity(0.2)))
+                            .foregroundStyle(.orange)
+                    }
+                }
+                TextField("e.g. 80%  ·  120 credits", text: Binding(
+                    get: { viewModel.settings.usageRemaining },
+                    set: { viewModel.settings.usageRemaining = $0 }
+                ))
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: 13, design: .monospaced))
+                    .contentShape(Rectangle())
             }
-        }
-    }
-
-    private var claudeBlock: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Text("Claude Code")
-                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                if let plan = usage.cursorPlan {
-                    Text(plan)
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(Capsule().fill(.quaternary))
-                }
-            }
-
-            HStack(spacing: 16) {
-                statBlock("In", value: formatTokens(usage.inputTokens))
-                statBlock("Out", value: formatTokens(usage.outputTokens))
-                statBlock("Cache", value: formatTokens(usage.cacheReadTokens))
-            }
-
-            Divider()
-
-            HStack {
-                Text("Estimated cost")
-                    .font(.system(size: 13, design: .monospaced))
-                Spacer()
-                Text(String(format: "$%.2f", usage.estimatedCost))
-                    .font(.system(size: 24, weight: .light, design: .monospaced))
-            }
-
-            Text("Offline estimate from ~/.claude transcripts.")
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(.tertiary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private var cursorBlock: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text("Cursor")
-                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                if let plan = usage.cursorPlan {
-                    Text(plan)
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(Capsule().fill(.quaternary))
-                }
-            }
-            Text("Detailed credit data isn't available locally. Set a manual value below.")
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private var manualBlock: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(settings.usageRemaining.isEmpty ? "No usage value set." : settings.usageRemaining)
-                .font(.system(size: 13, design: .monospaced))
-            Text("Manual entry from Settings.")
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(.tertiary)
-        }
-    }
-
-    private var emptyBlock: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("No usage data found.")
-                .font(.system(size: 13, design: .monospaced))
-                .foregroundStyle(.secondary)
-            Text("Claude Code usage is read from ~/.claude. Cursor plan is detected locally; live credits require manual entry.")
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(.tertiary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private func statBlock(_ label: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(label)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.system(size: 13, weight: .semibold, design: .monospaced))
         }
     }
 

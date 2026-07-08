@@ -1,19 +1,18 @@
 import AppKit
 import SwiftUI
-import Combine
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
     private var repoManager: RepoManager!
-    private var viewModel: EnvironmentViewModel!
+    private var viewModel: GitPanelViewModel!
     private var appSettings: AppSettings!
     private var settingsWindow: NSWindow?
     private var settingsDelegate: SettingsWindowDelegate?
-    private var cancellables = Set<AnyCancellable>()
     private var localEventMonitor: Any?
     private var globalEventMonitor: Any?
+    private var observationTask: Task<Void, Never>?
 
     private func activateForUI() {
         if let dock = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == "com.apple.dock" }) {
@@ -25,7 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         repoManager = RepoManager()
         appSettings = AppSettings()
-        viewModel = EnvironmentViewModel(repoManager: repoManager, settings: appSettings)
+        viewModel = GitPanelViewModel(repoManager: repoManager, settings: appSettings)
 
         let hosting = NSHostingController(
             rootView: EnvironmentPanel(viewModel: viewModel, repoManager: repoManager)
@@ -43,11 +42,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
 
-        observeViewModel()
+        startObservation()
         setupKeyboardShortcuts()
+        viewModel.startWatching()
     }
 
     deinit {
+        observationTask?.cancel()
         if let m = localEventMonitor { NSEvent.removeMonitor(m) }
         if let m = globalEventMonitor { NSEvent.removeMonitor(m) }
     }
@@ -72,13 +73,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         switch event.keyCode {
         case 15: // Cmd+R
-            viewModel.refresh()
+            Task { await viewModel.refresh() }
             return nil
         case 36: // Enter
             if isShift {
-                viewModel.commitAndPush()
+                Task { await viewModel.commitAndPush() }
             } else {
-                viewModel.commit()
+                Task { await viewModel.commit() }
             }
             return nil
         default:
@@ -90,47 +91,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func updateTooltip() {
         guard let button = statusItem.button else { return }
-        let s = viewModel.snapshot
+        let s = viewModel.state
         guard s.isGitRepo else {
             button.toolTip = "GitPanel — not a git repo"
             return
         }
-        var parts = ["\(s.name) — \(s.branch)"]
-        if s.ahead > 0 { parts.append("\(s.ahead) ahead") }
-        if s.behind > 0 { parts.append("\(s.behind) behind") }
-        parts.append(s.state.label)
-        button.toolTip = parts.joined(separator: " · ")
+        var tip = s.branchName
+        if s.isAheadOfRemote {
+            tip += " ↑\(s.commitCount)"
+        }
+        button.toolTip = tip
     }
 
     // MARK: - Observation
 
-    private func observeViewModel() {
-        viewModel.$snapshot
-            .combineLatest(viewModel.$isRefreshing)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _, _ in
-                self?.updateIcon()
-                self?.updateTooltip()
+    private func startObservation() {
+        observationTask?.cancel()
+        observationTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let self else { break }
+                withObservationTracking {
+                    self.updateIcon()
+                    self.updateTooltip()
+                } onChange: { [weak self] in
+                    Task { @MainActor [weak self] in
+                        self?.startObservation()
+                    }
+                }
+                try? await Task.sleep(for: .seconds(3600))
             }
-            .store(in: &cancellables)
+        }
     }
 
     private func updateIcon() {
         guard let button = statusItem.button else { return }
 
-        let snapshot = viewModel.snapshot
+        let s = viewModel.state
 
         let symbolName: String
-        if snapshot.isGitRepo {
-            switch snapshot.state {
+        if s.isGitRepo {
+            switch s.repoState {
             case .clean:
-                symbolName = "command.circle"
-            case .dirty, .detachedHEAD:
+                symbolName = "checkmark.circle.fill"
+            case .dirty, .staging:
                 symbolName = "arrow.up.circle.fill"
-            case .mergeConflict:
-                symbolName = "exclamationmark.circle.fill"
-            case .rebasing, .cherryPicking, .reverting, .bisecting:
+            case .pushing:
+                symbolName = "arrow.up.circle.fill"
+            case .pulling:
+                symbolName = "arrow.down.circle.fill"
+            case .merging, .rebasing, .resolving:
                 symbolName = "arrow.triangle.branch.circlepath"
+            case .mergeConflict:
+                symbolName = "exclamationmark.triangle.fill"
+            case .cherryPicking, .reverting, .bisecting:
+                symbolName = "arrow.triangle.branch.circlepath"
+            case .detachedHEAD:
+                symbolName = "arrow.triangle.merge"
             }
         } else {
             symbolName = "command.circle"
@@ -184,7 +200,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func refreshAction() {
-        viewModel.refresh()
+        Task { await viewModel.refresh() }
     }
 
     @objc func showSettings() {
@@ -206,6 +222,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func quit() {
+        viewModel.stopWatching()
         NSApp.terminate(nil)
     }
 }
