@@ -1,0 +1,21 @@
+# Build
+.build/
+GitPanel.app/
+*.o
+*.dSYM/
+
+# macOS
+.DS_Store
+*.swp
+*~
+
+# Xcode
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+
+# Screenshots (raw captures, not for repo)
+icon-variants/
+
+# Temporary
+*.tmp
