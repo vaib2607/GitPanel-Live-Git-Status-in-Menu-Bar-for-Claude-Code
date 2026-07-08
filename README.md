@@ -19,7 +19,6 @@
 <p align="center">
   <a href="#quick-start">Quick Start</a> •
   <a href="#features">Features</a> •
-  <a href="#screenshots">Screenshots</a> •
   <a href="#keyboard-shortcuts">Shortcuts</a> •
   <a href="#privacy">Privacy</a> •
   <a href="#contributing">Contributing</a>
@@ -55,38 +54,6 @@ curl -sL https://raw.githubusercontent.com/vaib2607/GitPanel-Live-Git-Status-in-
 ### Option 3: Download Release
 
 Download the latest `.app` from [Releases](https://github.com/vaib2607/GitPanel-Live-Git-Status-in-Menu-Bar-for-Claude-Code/releases).
-
----
-
-## Screenshots
-
-<p align="center">
-  <img src="screenshots/20260709_main_panel.png" width="600" alt="Main Panel — Diff Summary">
-</p>
-
-<p align="center">
-  <em>Main panel showing diff summary, file stats, and commit actions</em>
-</p>
-
-<br>
-
-<p align="center">
-  <img src="screenshots/20260709_branch_list.png" width="600" alt="Branch Switcher">
-</p>
-
-<p align="center">
-  <em>Branch switcher with search, create, and context menu</em>
-</p>
-
-<br>
-
-<p align="center">
-  <img src="screenshots/20260709_commit_view.png" width="600" alt="Commit Actions">
-</p>
-
-<p align="center">
-  <em>Commit, Push, and Commit & Push buttons</em>
-</p>
 
 ---
 
@@ -257,11 +224,6 @@ GitPanel/
 ├── scripts/
 │   ├── generate-icon.swift
 │   └── capture-screenshots.sh
-├── screenshots/
-│   ├── 20260709_main_panel.png
-│   ├── 20260709_branch_list.png
-│   ├── 20260709_commit_view.png
-│   └── 20260709_menu_bar.png
 ├── build.sh
 ├── install.sh
 ├── Package.swift
