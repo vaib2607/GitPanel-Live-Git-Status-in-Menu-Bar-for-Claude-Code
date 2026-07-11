@@ -30,7 +30,27 @@ struct BranchListView: View {
                         .padding(.top, 8)
                         .padding(.bottom, 4)
 
-                    ForEach(viewModel.filteredBranches) { branch in
+                    switch viewModel.branchesState {
+                    case .idle, .loading:
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                                .controlSize(.small)
+                            Spacer()
+                        }
+                        .padding()
+                    case .failed(let error):
+                        HStack {
+                            Spacer()
+                            Text(error.localizedDescription)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.red)
+                                .multilineTextAlignment(.center)
+                            Spacer()
+                        }
+                        .padding()
+                    case .loaded:
+                        ForEach(viewModel.filteredBranches) { branch in
                         Button {
                             Task { await viewModel.checkout(branch) }
                             onBack()
@@ -89,7 +109,8 @@ struct BranchListView: View {
                                 }
                             }
                         }
-                    }
+                        } // End of ForEach
+                    } // End of switch
 
                     Divider().padding(.vertical, 8)
 

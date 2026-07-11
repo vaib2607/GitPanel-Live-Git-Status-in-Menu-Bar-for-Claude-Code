@@ -5,7 +5,8 @@ import Combine
 @Observable final class GitPanelViewModel {
     // MARK: - State
     var state = GitState()
-    var branches: [GitBranch] = []
+    var branchesState: DataState<[GitBranch]> = .idle
+    var branches: [GitBranch] { branchesState.value ?? [] }
     var prStatus: PRStatus = .noPRs
     var usage: UsageData = .init(tokens: 0, cost: 0, model: "", plan: "", isUsingPlan: false, modelBreakdown: [:], lastUpdated: Date())
     var commitMessage: String = ""
@@ -99,12 +100,17 @@ import Combine
         }
 
         // Optional Git branches in detached background Task
+        self.branchesState = .loading
         Task.detached { [weak self, gitService] in
             do {
                 let fetched = try await gitService.branches(repo: repo)
-                await self?.updateBranches(fetched)
+                await MainActor.run {
+                    self?.branchesState = .loaded(fetched)
+                }
             } catch {
-                await self?.showBanner("Branches Load Failed", detail: error.localizedDescription, kind: .warning)
+                await MainActor.run {
+                    self?.branchesState = .failed(error)
+                }
             }
         }
 
@@ -148,7 +154,7 @@ import Combine
     }
 
     func updateBranches(_ fetchedBranches: [GitBranch]) {
-        self.branches = fetchedBranches
+        self.branchesState = .loaded(fetchedBranches)
     }
 
     func updatePRStatus(_ fetchedPRStatus: PRStatus) {

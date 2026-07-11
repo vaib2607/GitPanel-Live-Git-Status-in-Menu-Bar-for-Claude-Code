@@ -17,7 +17,7 @@ struct GitService {
 
     @discardableResult
     private static func git(_ args: [String], repo: URL) async throws -> String {
-        try await ShellRunner.run(gitPath, args, at: repo.path)
+        try await ShellRunner.run(gitPath, ["-C", repo.path] + args, at: repo.path)
     }
 
     // MARK: - Core Queries
@@ -37,6 +37,12 @@ struct GitService {
     }
 
     func branches(repo: URL) async throws -> [GitBranch] {
+        // Validate repo first to avoid 128 error from for-each-ref
+        let isInside = try await Self.git(["rev-parse", "--is-inside-work-tree"], repo: repo)
+        guard isInside.trimmingCharacters(in: .whitespacesAndNewlines) == "true" else {
+            throw ShellError.commandFailed(128, command: "rev-parse", workingDirectory: repo.path, stdout: "", stderr: "Not inside work tree")
+        }
+        
         let format = "%(refname:short)|%(refname:strip=2)|%(upstream:short)|%(upstream:ahead-count)|%(upstream:behind-count)|%(HEAD)"
         let output = try await Self.git(["for-each-ref", "--format=\(format)", "refs/heads/", "refs/remotes/"], repo: repo)
 

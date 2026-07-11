@@ -1,17 +1,6 @@
 import SwiftUI
 
-enum PanelRoute: Hashable {
-    case main, branch, environment, usage, repositoryInfo
-    case fileList
-    case diffViewer(String)
-    case stash
-    case conflicts
-    case multiAgent
-    case spending
-    case build
-    case mcp
-    case timeline
-}
+// PanelRoute removed, using AppRouter and GitPanelRoute from AppRouter.swift
 
 enum AppTab {
     case overview, codex, claude
@@ -21,7 +10,7 @@ struct EnvironmentPanel: View {
     var viewModel: GitPanelViewModel
     var repoManager: RepoManager
     @State private var selectedTab: AppTab = .overview
-    @State private var route: PanelRoute = .main
+    @State private var router = AppRouter()
     @State private var showRepoPicker = false
     @State private var isDragTargeted = false
     @State private var isHovered = false
@@ -45,25 +34,29 @@ struct EnvironmentPanel: View {
                     header
                     PanelDivider()
 
-                    switch route {
+                    switch router.currentRoute {
                     case .main:
                         mainContent
                     case .branch:
-                        BranchListView(viewModel: viewModel, onBack: { route = .main })
+                        BranchListView(viewModel: viewModel, onBack: { router.pop() })
                     case .environment:
                         EnvironmentMenuView(
                             viewModel: viewModel,
-                            onBack: { route = .main },
-                            onShowUsage: { route = .usage },
-                            onShowRepoInfo: { route = .repositoryInfo },
-                            onShowMultiAgent: { route = .multiAgent },
-                            onShowSpending: { route = .spending },
-                            onShowBuild: { route = .build },
-                            onShowMCP: { route = .mcp },
-                            onShowTimeline: { route = .timeline }
+                            onBack: { router.pop() },
+                            onShowUsage: { router.push(.usage) },
+                            onShowRepoInfo: { router.push(.repositoryInfo) },
+                            onShowMultiAgent: { router.push(.multiAgent) },
+                            onShowSpending: { router.push(.spending) },
+                            onShowBuild: { router.push(.build) },
+                            onShowMCP: { router.push(.mcp) },
+                            onShowTimeline: { router.push(.timeline) }
                         )
                     case .usage:
                         UsageView(viewModel: viewModel)
+                    case .usageDetail:
+                        UsageDetailView(viewModel: viewModel, onBack: { router.pop() })
+                    case .costDetail:
+                        CostDetailView(viewModel: viewModel, onBack: { router.pop() })
                     case .repositoryInfo:
                         RepositoryInfoView(viewModel: viewModel)
                     case .fileList:
@@ -71,28 +64,30 @@ struct EnvironmentPanel: View {
                     case .diffViewer(let path):
                         DiffViewerView(viewModel: viewModel, filePath: path, onBack: {
                             viewModel.showingDiffFor = nil
-                            route = .fileList
+                            router.pop()
                         })
                     case .stash:
-                        StashView(viewModel: viewModel, onBack: { route = .main })
+                        StashView(viewModel: viewModel, onBack: { router.pop() })
                     case .conflicts:
-                        ConflictResolverView(viewModel: viewModel, onBack: { route = .main })
+                        ConflictResolverView(viewModel: viewModel, onBack: { router.pop() })
                     case .multiAgent:
-                        MultiAgentDashboardView(onBack: { route = .main })
+                        MultiAgentDashboardView(onBack: { router.pop() })
                     case .spending:
-                        SpendingDashboardView(onBack: { route = .main })
+                        SpendingDashboardView(onBack: { router.pop() })
                     case .build:
-                        BuildStatusView(onBack: { route = .main })
+                        BuildStatusView(onBack: { router.pop() })
                     case .mcp:
-                        MCPStatusView(onBack: { route = .main })
+                        MCPStatusView(onBack: { router.pop() })
                     case .timeline:
-                        TimelineView(onBack: { route = .main })
+                        TimelineView(onBack: { router.pop() })
                     }
                 }
             } else if selectedTab == .codex {
                 AgentDashboardView(providerName: "Codex", isPro: false, color: .blue)
+                    .environment(router)
             } else if selectedTab == .claude {
                 AgentDashboardView(providerName: "Claude", isPro: true, color: .orange)
+                    .environment(router)
             }
         }
         .frame(width: 360)
@@ -122,7 +117,7 @@ struct EnvironmentPanel: View {
         }
         .onChange(of: viewModel.showingDiffFor) { _, newValue in
             if let path = newValue {
-                route = .diffViewer(path)
+                router.push(.diffViewer(path))
             }
         }
     }
@@ -131,16 +126,9 @@ struct EnvironmentPanel: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            if route != .main {
+            if router.currentRoute != .main {
                 Button {
-                    switch route {
-                    case .repositoryInfo, .usage, .multiAgent, .spending:
-                        route = .environment
-                    case .diffViewer:
-                        route = .fileList
-                    default:
-                        route = .main
-                    }
+                    router.pop()
                 } label: {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 13, weight: .medium))
@@ -162,10 +150,10 @@ struct EnvironmentPanel: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.primary)
             }
-            Text(route == .main ? (AIEngine.shared.activeProviderName ?? "Environment") : title(for: route))
+            Text(router.currentRoute == .main ? (AIEngine.shared.activeProviderName ?? "Environment") : title(for: router.currentRoute))
                 .font(.system(size: 13, weight: .medium))
             Spacer()
-            if route == .main {
+            if router.currentRoute == .main {
                 Button {
                     showRepoPicker = true
                 } label: {
@@ -184,11 +172,13 @@ struct EnvironmentPanel: View {
         .frame(height: 28)
     }
 
-    private func title(for route: PanelRoute) -> String {
+    private func title(for route: GitPanelRoute) -> String {
         switch route {
         case .branch: return "Branch"
         case .environment: return "Continue in"
         case .usage: return "Usage"
+        case .usageDetail: return "Plan Usage"
+        case .costDetail: return "Cost"
         case .repositoryInfo: return "Repository Info"
         case .fileList: return "Changed Files"
         case .diffViewer: return "Diff"
@@ -230,20 +220,20 @@ struct EnvironmentPanel: View {
                 PanelDivider()
 
                 NavigationRow(icon: "doc.on.doc", title: "Changed Files", count: viewModel.stagedFiles.count + viewModel.unstagedFiles.count + viewModel.untrackedFiles.count) {
-                    route = .fileList
+                    router.push(.fileList)
                 }
                 NavigationRow(icon: "tray", title: "Stash", count: viewModel.stashEntries.count) {
-                    route = .stash
+                    router.push(.stash)
                 }
                 NavigationRow(icon: "exclamationmark.triangle", title: "Conflicts", count: viewModel.conflictedFiles.count) {
-                    route = .conflicts
+                    router.push(.conflicts)
                 }
 
                 PanelDivider()
 
                 // Branch dropdown
                 DropdownRow(icon: "arrow.branch", title: "Branch", value: viewModel.currentBranch) {
-                    route = .branch
+                    router.push(.branch)
                 }
 
                 // Commit section
@@ -310,7 +300,7 @@ struct EnvironmentPanel: View {
         .contentShape(Rectangle())
         .onHover { hovering in isRowHovered = hovering }
         .onTapGesture {
-            route = .environment
+            router.push(.environment)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Repository: \(viewModel.state.repoName), branch: \(viewModel.currentBranch)")

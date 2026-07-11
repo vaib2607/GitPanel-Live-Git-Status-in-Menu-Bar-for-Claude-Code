@@ -2,6 +2,7 @@ import SwiftUI
 import Charts
 
 struct AgentDashboardView: View {
+    @Environment(AppRouter.self) var router: AppRouter
     let providerName: String
     let isPro: Bool
     let color: Color
@@ -150,12 +151,29 @@ struct AgentDashboardView: View {
                 
                 // Links
                 VStack(spacing: 0) {
-                    MenuRow(title: "Plan Usage")
-                    MenuRow(title: "Cost")
+                    Button(action: { router.push(.usageDetail) }) {
+                        MenuRow(title: "Plan Usage", hasChevron: true)
+                    }
+                    .buttonStyle(.plain)
+                    
+                    Button(action: { router.push(.costDetail) }) {
+                        MenuRow(title: "Cost", hasChevron: true)
+                    }
+                    .buttonStyle(.plain)
+                    
                     PanelDivider()
-                    MenuActionRow(icon: "plus", title: "Add Account...")
-                    MenuActionRow(icon: "chart.xyaxis.line", title: "Usage Dashboard")
-                    MenuRow(title: "Status Page")
+                    
+                    Button(action: { /* Add account logic */ }) {
+                        MenuActionRow(icon: "plus", title: "Add Account...")
+                    }
+                    .buttonStyle(.plain)
+                    
+                    Button(action: { router.push(.usage) }) {
+                        MenuActionRow(icon: "chart.xyaxis.line", title: "Usage Dashboard")
+                    }
+                    .buttonStyle(.plain)
+                    
+                    MenuRow(title: "Status Page", hasChevron: false)
                 }
             }
             .padding(.bottom, 16)
@@ -180,14 +198,17 @@ struct AgentDashboardView: View {
 
 struct MenuRow: View {
     let title: String
+    var hasChevron: Bool = true
     var body: some View {
         HStack {
             Text(title)
                 .font(.system(size: 13, weight: .medium))
             Spacer()
-            Image(systemName: "chevron.right")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
+            if hasChevron {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
