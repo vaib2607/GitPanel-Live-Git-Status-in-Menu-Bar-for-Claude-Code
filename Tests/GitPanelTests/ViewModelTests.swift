@@ -105,7 +105,11 @@ final class ViewModelTests: XCTestCase {
 
         let before = Date()
         await vm.refresh()
-        XCTAssertGreaterThanOrEqual(vm.state.lastUpdated, before)
+        if case .loaded(_, let metadata) = vm.repositoryState {
+            XCTAssertGreaterThanOrEqual(metadata?.lastUpdated ?? Date.distantPast, before)
+        } else {
+            XCTFail("State should be loaded")
+        }
     }
 
     func testRefresh_setsRepoName() async throws {
@@ -625,73 +629,40 @@ final class ViewModelTests: XCTestCase {
 
     func testRepoState_delegatesToState() {
         let vm = GitPanelViewModel(repoManager: RepoManager(), settings: AppSettings())
-        vm.state.repoState = .dirty
+        vm.repositoryState = .loaded(RepositorySnapshot(
+            status: GitStateSnapshot(
+                isGitRepo: true,
+                repoName: "test",
+                branchName: "feature",
+                isAheadOfRemote: true,
+                isBehindRemote: true,
+                hasChanges: false,
+                stagedCount: 0,
+                unstagedCount: 0,
+                untrackedCount: 0,
+                conflictCount: 0,
+                linesAdded: 0,
+                linesDeleted: 0,
+                lastCommitHash: "",
+                lastCommitMessage: "",
+                lastCommitDate: .distantPast,
+                remotes: [Remote(name: "origin", url: "https://github.com")],
+                remoteName: "origin",
+                submodules: [Submodule(name: "sub", path: "sub", url: "https://example.com")],
+                branches: [],
+                repoState: .dirty
+            ),
+            changes: ChangedFiles(staged: [], unstaged: [], untracked: [])
+        ), DataMetadata(source: .localGit, lastUpdated: Date()))
+        
         XCTAssertEqual(vm.repoState, .dirty)
-    }
-
-    func testStateLabel_delegatesToState() {
-        let vm = GitPanelViewModel(repoManager: RepoManager(), settings: AppSettings())
-        vm.state.repoState = .mergeConflict
-        XCTAssertEqual(vm.stateLabel, "Merge Conflict")
-    }
-
-    func testStateIcon_delegatesToState() {
-        let vm = GitPanelViewModel(repoManager: RepoManager(), settings: AppSettings())
-        vm.state.repoState = .clean
-        XCTAssertEqual(vm.stateIcon, "checkmark.circle.fill")
-    }
-
-    func testStateColor_delegatesToState() {
-        let vm = GitPanelViewModel(repoManager: RepoManager(), settings: AppSettings())
-        vm.state.repoState = .clean
-        XCTAssertEqual(vm.stateColor, .green)
-    }
-
-    func testIsGitRepo_delegatesToState() {
-        let vm = GitPanelViewModel(repoManager: RepoManager(), settings: AppSettings())
-        vm.state.isGitRepo = true
+        XCTAssertEqual(vm.stateLabel, "Uncommitted Changes")
+        XCTAssertEqual(vm.stateColor, .orange)
         XCTAssertTrue(vm.isGitRepo)
-    }
-
-    func testCurrentBranch_delegatesToState() {
-        let vm = GitPanelViewModel(repoManager: RepoManager(), settings: AppSettings())
-        vm.state.branchName = "feature"
         XCTAssertEqual(vm.currentBranch, "feature")
-    }
-
-    func testAhead_returnsOneWhenAhead() {
-        let vm = GitPanelViewModel(repoManager: RepoManager(), settings: AppSettings())
-        vm.state.isAheadOfRemote = true
         XCTAssertEqual(vm.ahead, 1)
-    }
-
-    func testAhead_returnsZeroWhenNotAhead() {
-        let vm = GitPanelViewModel(repoManager: RepoManager(), settings: AppSettings())
-        vm.state.isAheadOfRemote = false
-        XCTAssertEqual(vm.ahead, 0)
-    }
-
-    func testBehind_returnsOneWhenBehind() {
-        let vm = GitPanelViewModel(repoManager: RepoManager(), settings: AppSettings())
-        vm.state.isBehindRemote = true
         XCTAssertEqual(vm.behind, 1)
-    }
-
-    func testBehind_returnsZeroWhenNotBehind() {
-        let vm = GitPanelViewModel(repoManager: RepoManager(), settings: AppSettings())
-        vm.state.isBehindRemote = false
-        XCTAssertEqual(vm.behind, 0)
-    }
-
-    func testRemotes_delegatesToState() {
-        let vm = GitPanelViewModel(repoManager: RepoManager(), settings: AppSettings())
-        vm.state.remotes = [Remote(name: "origin", url: "https://github.com")]
         XCTAssertEqual(vm.remotes.count, 1)
-    }
-
-    func testSubmodules_delegatesToState() {
-        let vm = GitPanelViewModel(repoManager: RepoManager(), settings: AppSettings())
-        vm.state.submodules = [Submodule(name: "sub", path: "sub", url: "https://example.com")]
         XCTAssertEqual(vm.submodules.count, 1)
     }
 

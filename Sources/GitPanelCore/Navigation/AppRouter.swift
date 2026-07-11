@@ -23,10 +23,8 @@ public enum GitPanelRoute: Hashable, Sendable {
     case diffViewer(repo: RepositoryID, path: String)
     case repositoryInfo(RepositoryID)
     
-    case usageDashboard(AIProviderID)
     case usageDetail(AIProviderID)
     case costDetail(AIProviderID)
-    case statusPage(AIProviderID)
     
     case environment
     case settings
@@ -36,12 +34,6 @@ public enum GitPanelRoute: Hashable, Sendable {
         return false
     }
     
-    // Legacy routes temporarily kept to prevent compile errors in EnvironmentMenuView, to be removed by Agent 1
-    case multiAgent
-    case spending
-    case build
-    case mcp
-    case timeline
     case usage
 }
 

@@ -18,9 +18,16 @@ struct EnvironmentPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            topTabBar
-            PanelDivider()
-            panelContent
+            if router.currentRoute.isMain {
+                topTabBar
+                PanelDivider()
+            }
+            
+            VStack(alignment: .leading, spacing: 0) {
+                header
+                PanelDivider()
+                routerView
+            }
         }
         .frame(width: 360)
         .background(backgroundView)
@@ -55,26 +62,18 @@ struct EnvironmentPanel: View {
         .padding(.top, 8)
     }
     
-    @ViewBuilder private var panelContent: some View {
-        if selectedTab == .overview {
-            VStack(alignment: .leading, spacing: 0) {
-                header
-                PanelDivider()
-                overviewPanelContent
-            }
-        } else if selectedTab == .codex {
-            AgentDashboardView(providerName: "Codex", isPro: false, color: .blue, viewModel: viewModel)
-                .environment(router)
-        } else if selectedTab == .claude {
-            AgentDashboardView(providerName: "Claude", isPro: true, color: .orange, viewModel: viewModel)
-                .environment(router)
-        }
-    }
-    
-    @ViewBuilder private var overviewPanelContent: some View {
+    @ViewBuilder private var routerView: some View {
         switch router.currentRoute {
         case .main(_):
-            mainContent
+            if selectedTab == .overview {
+                mainContent
+            } else if selectedTab == .codex {
+                AgentDashboardView(providerName: "Codex", isPro: false, color: .blue, viewModel: viewModel)
+                    .environment(router)
+            } else if selectedTab == .claude {
+                AgentDashboardView(providerName: "Claude", isPro: true, color: .orange, viewModel: viewModel)
+                    .environment(router)
+            }
         case .branch(_):
             BranchListView(viewModel: viewModel, onBack: { router.pop() })
         case .environment:
@@ -85,12 +84,7 @@ struct EnvironmentPanel: View {
                 onShowRepoInfo: {
                     let repoID = RepositoryID(path: repoManager.repoURL.path)
                     router.push(.repositoryInfo(repoID))
-                },
-                onShowMultiAgent: { router.push(.multiAgent) },
-                onShowSpending: { router.push(.spending) },
-                onShowBuild: { router.push(.build) },
-                onShowMCP: { router.push(.mcp) },
-                onShowTimeline: { router.push(.timeline) }
+                }
             )
         case .usage:
             UsageView(viewModel: viewModel)
@@ -111,17 +105,7 @@ struct EnvironmentPanel: View {
             StashView(viewModel: viewModel, onBack: { router.pop() })
         case .conflicts(_):
             ConflictResolverView(viewModel: viewModel, onBack: { router.pop() })
-        case .multiAgent:
-            MultiAgentDashboardView(onBack: { router.pop() })
-        case .spending:
-            SpendingDashboardView(onBack: { router.pop() })
-        case .build:
-            BuildStatusView(onBack: { router.pop() })
-        case .mcp:
-            MCPStatusView(onBack: { router.pop() })
-        case .timeline:
-            TimelineView(onBack: { router.pop() })
-        case .usageDashboard(_), .statusPage(_), .settings:
+        case .settings:
             Text("Not implemented")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }

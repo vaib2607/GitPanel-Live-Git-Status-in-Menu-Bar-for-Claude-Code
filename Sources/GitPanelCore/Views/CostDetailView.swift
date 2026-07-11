@@ -6,12 +6,7 @@ struct CostDetailView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Cost Breakdown")
-                .font(.system(size: 20, weight: .bold))
-                .padding(.horizontal, 16)
-                .padding(.top, 16)
-            
-            PanelDivider()
+
             
             switch viewModel.usageState {
             case .idle:

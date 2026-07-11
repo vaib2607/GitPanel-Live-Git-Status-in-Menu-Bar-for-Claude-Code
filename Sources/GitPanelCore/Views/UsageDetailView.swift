@@ -6,12 +6,7 @@ struct UsageDetailView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Plan Usage")
-                .font(.system(size: 20, weight: .bold))
-                .padding(.horizontal, 16)
-                .padding(.top, 16)
-            
-            PanelDivider()
+
             
             switch viewModel.usageState {
             case .idle:
