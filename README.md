@@ -194,10 +194,11 @@ See your **real token counts** and **cost** from Claude Code offline logs. Best-
 ```
 GitPanel/
 ├── Sources/
-│   └── GitPanel/
-│       ├── main.swift
-│       ├── AppDelegate.swift
-│       ├── Models.swift
+│   ├── GitPanel/
+│   │   ├── GitPanelApp.swift
+│   │   └── ...
+│   └── GitPanelCore/
+│       ├── GitFile.swift
 │       ├── Services/
 │       │   ├── ShellRunner.swift
 │       │   ├── GitService.swift
@@ -207,15 +208,12 @@ GitPanel/
 │       │   ├── AppSettings.swift
 │       │   └── FileWatcher.swift
 │       └── Views/
-│           ├── EnvironmentViewModel.swift
+│           ├── GitPanelViewModel.swift
 │           ├── EnvironmentPanel.swift
-│           ├── BranchListView.swift
-│           ├── UsageView.swift
-│           ├── CommitSection.swift
-│           ├── PRStatusRow.swift
-│           ├── RepositoryInfoView.swift
-│           ├── PanelStyles.swift
-│           └── SettingsView.swift
+│           ├── FileListView.swift
+│           ├── StashView.swift
+│           ├── ConflictResolverView.swift
+│           └── Animations.swift
 ├── Resources/
 │   ├── Info.plist
 │   ├── GitPanel.entitlements
@@ -235,12 +233,11 @@ GitPanel/
 
 ## Roadmap
 
+- [x] Git stash management
+- [x] Multiple repo support
 - [ ] Staging individual files from the panel
 - [ ] Interactive rebase support
-- [ ] Git stash management
 - [ ] Commit message templates
-- [ ] Diff viewer (inline changes)
-- [ ] Multiple repo support
 - [ ] Notification on push completion
 - [ ] Customizable keyboard shortcuts
 
