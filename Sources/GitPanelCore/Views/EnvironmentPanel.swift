@@ -18,89 +18,12 @@ struct EnvironmentPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Top Tab Bar
-            HStack(spacing: 0) {
-                TabButton(title: "Overview", icon: "square.grid.2x2", isSelected: selectedTab == .overview, color: .primary) { selectedTab = .overview }
-                TabButton(title: "Codex", icon: "bolt.fill", isSelected: selectedTab == .codex, color: .blue) { selectedTab = .codex }
-                TabButton(title: "Claude", icon: "sparkles", isSelected: selectedTab == .claude, color: .orange) { selectedTab = .claude }
-            }
-            .padding(.horizontal, 8)
-            .padding(.top, 8)
-            
+            topTabBar
             PanelDivider()
-            
-            if selectedTab == .overview {
-                VStack(alignment: .leading, spacing: 0) {
-                    header
-                    PanelDivider()
-
-                    switch router.currentRoute {
-                    case .main:
-                        mainContent
-                    case .branch:
-                        BranchListView(viewModel: viewModel, onBack: { router.pop() })
-                    case .environment:
-                        EnvironmentMenuView(
-                            viewModel: viewModel,
-                            onBack: { router.pop() },
-                            onShowUsage: { router.push(.usage) },
-                            onShowRepoInfo: { router.push(.repositoryInfo) },
-                            onShowMultiAgent: { router.push(.multiAgent) },
-                            onShowSpending: { router.push(.spending) },
-                            onShowBuild: { router.push(.build) },
-                            onShowMCP: { router.push(.mcp) },
-                            onShowTimeline: { router.push(.timeline) }
-                        )
-                    case .usage:
-                        UsageView(viewModel: viewModel)
-                    case .usageDetail:
-                        UsageDetailView(viewModel: viewModel, onBack: { router.pop() })
-                    case .costDetail:
-                        CostDetailView(viewModel: viewModel, onBack: { router.pop() })
-                    case .repositoryInfo:
-                        RepositoryInfoView(viewModel: viewModel)
-                    case .fileList:
-                        FileListView(viewModel: viewModel)
-                    case .diffViewer(let path):
-                        DiffViewerView(viewModel: viewModel, filePath: path, onBack: {
-                            viewModel.showingDiffFor = nil
-                            router.pop()
-                        })
-                    case .stash:
-                        StashView(viewModel: viewModel, onBack: { router.pop() })
-                    case .conflicts:
-                        ConflictResolverView(viewModel: viewModel, onBack: { router.pop() })
-                    case .multiAgent:
-                        MultiAgentDashboardView(onBack: { router.pop() })
-                    case .spending:
-                        SpendingDashboardView(onBack: { router.pop() })
-                    case .build:
-                        BuildStatusView(onBack: { router.pop() })
-                    case .mcp:
-                        MCPStatusView(onBack: { router.pop() })
-                    case .timeline:
-                        TimelineView(onBack: { router.pop() })
-                    }
-                }
-            } else if selectedTab == .codex {
-                AgentDashboardView(providerName: "Codex", isPro: false, color: .blue)
-                    .environment(router)
-            } else if selectedTab == .claude {
-                AgentDashboardView(providerName: "Claude", isPro: true, color: .orange)
-                    .environment(router)
-            }
+            panelContent
         }
         .frame(width: 360)
-        .background(
-            Group {
-                if isDragTargeted {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(Color.accentColor, lineWidth: 2)
-                        .padding(2)
-                }
-                Color(NSColor.windowBackgroundColor)
-            }
-        )
+        .background(backgroundView)
         .onDrop(of: [.fileURL], delegate: DropHandler(viewModel: viewModel, isTargeted: $isDragTargeted))
         .sheet(isPresented: $showRepoPicker) {
             RepoPicker(onPicked: { url in
@@ -111,14 +34,107 @@ struct EnvironmentPanel: View {
         }
         .overlay(alignment: .top) {
             if let banner = viewModel.banner {
-                BannerView(banner: banner)
-                    .padding(12)
+                BannerView(banner: banner).padding(12)
             }
         }
         .onChange(of: viewModel.showingDiffFor) { _, newValue in
             if let path = newValue {
-                router.push(.diffViewer(path))
+                let repoID = RepositoryID(path: repoManager.repoURL.path)
+                router.push(.diffViewer(repo: repoID, path: path))
             }
+        }
+    }
+    
+    private var topTabBar: some View {
+        HStack(spacing: 0) {
+            TabButton(title: "Overview", icon: "square.grid.2x2", isSelected: selectedTab == .overview, color: .primary) { selectedTab = .overview }
+            TabButton(title: "Codex", icon: "bolt.fill", isSelected: selectedTab == .codex, color: .blue) { selectedTab = .codex }
+            TabButton(title: "Claude", icon: "sparkles", isSelected: selectedTab == .claude, color: .orange) { selectedTab = .claude }
+        }
+        .padding(.horizontal, 8)
+        .padding(.top, 8)
+    }
+    
+    @ViewBuilder private var panelContent: some View {
+        if selectedTab == .overview {
+            VStack(alignment: .leading, spacing: 0) {
+                header
+                PanelDivider()
+                overviewPanelContent
+            }
+        } else if selectedTab == .codex {
+            AgentDashboardView(providerName: "Codex", isPro: false, color: .blue)
+                .environment(router)
+        } else if selectedTab == .claude {
+            AgentDashboardView(providerName: "Claude", isPro: true, color: .orange)
+                .environment(router)
+        }
+    }
+    
+    @ViewBuilder private var overviewPanelContent: some View {
+        switch router.currentRoute {
+        case .main(_):
+            mainContent
+        case .branch(_):
+            BranchListView(viewModel: viewModel, onBack: { router.pop() })
+        case .environment:
+            EnvironmentMenuView(
+                viewModel: viewModel,
+                onBack: { router.pop() },
+                onShowUsage: { router.push(.usage) },
+                onShowRepoInfo: {
+                    let repoID = RepositoryID(path: repoManager.repoURL.path)
+                    router.push(.repositoryInfo(repoID))
+                },
+                onShowMultiAgent: { router.push(.multiAgent) },
+                onShowSpending: { router.push(.spending) },
+                onShowBuild: { router.push(.build) },
+                onShowMCP: { router.push(.mcp) },
+                onShowTimeline: { router.push(.timeline) }
+            )
+        case .usage:
+            UsageView(viewModel: viewModel)
+        case .usageDetail(_):
+            UsageDetailView(viewModel: viewModel, onBack: { router.pop() })
+        case .costDetail(_):
+            CostDetailView(viewModel: viewModel, onBack: { router.pop() })
+        case .repositoryInfo(_):
+            RepositoryInfoView(viewModel: viewModel)
+        case .fileList(_):
+            FileListView(viewModel: viewModel)
+        case .diffViewer(_, let path):
+            DiffViewerView(viewModel: viewModel, filePath: path, onBack: {
+                viewModel.showingDiffFor = nil
+                router.pop()
+            })
+        case .stash(_):
+            StashView(viewModel: viewModel, onBack: { router.pop() })
+        case .conflicts(_):
+            ConflictResolverView(viewModel: viewModel, onBack: { router.pop() })
+        case .multiAgent:
+            MultiAgentDashboardView(onBack: { router.pop() })
+        case .spending:
+            SpendingDashboardView(onBack: { router.pop() })
+        case .build:
+            BuildStatusView(onBack: { router.pop() })
+        case .mcp:
+            MCPStatusView(onBack: { router.pop() })
+        case .timeline:
+            TimelineView(onBack: { router.pop() })
+        case .usageDashboard(_), .statusPage(_), .settings:
+            Text("Not implemented")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+    
+    @ViewBuilder private var backgroundView: some View {
+        Group {
+            if isDragTargeted {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color.accentColor, lineWidth: 2)
+                    .padding(2)
+            }
+            Color(NSColor.windowBackgroundColor)
         }
     }
 
@@ -126,7 +142,7 @@ struct EnvironmentPanel: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            if router.currentRoute != .main {
+            if !router.currentRoute.isMain {
                 Button {
                     router.pop()
                 } label: {
@@ -150,10 +166,10 @@ struct EnvironmentPanel: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.primary)
             }
-            Text(router.currentRoute == .main ? (AIEngine.shared.activeProviderName ?? "Environment") : title(for: router.currentRoute))
+            Text(router.currentRoute.isMain ? (AIEngine.shared.activeProviderName ?? "Environment") : title(for: router.currentRoute))
                 .font(.system(size: 13, weight: .medium))
             Spacer()
-            if router.currentRoute == .main {
+            if router.currentRoute.isMain {
                 Button {
                     showRepoPicker = true
                 } label: {
@@ -174,16 +190,16 @@ struct EnvironmentPanel: View {
 
     private func title(for route: GitPanelRoute) -> String {
         switch route {
-        case .branch: return "Branch"
+        case .branch(_): return "Branch"
         case .environment: return "Continue in"
         case .usage: return "Usage"
-        case .usageDetail: return "Plan Usage"
-        case .costDetail: return "Cost"
-        case .repositoryInfo: return "Repository Info"
-        case .fileList: return "Changed Files"
-        case .diffViewer: return "Diff"
-        case .stash: return "Stash"
-        case .conflicts: return "Conflicts"
+        case .usageDetail(_): return "Plan Usage"
+        case .costDetail(_): return "Cost"
+        case .repositoryInfo(_): return "Repository Info"
+        case .fileList(_): return "Changed Files"
+        case .diffViewer(_, _): return "Diff"
+        case .stash(_): return "Stash"
+        case .conflicts(_): return "Conflicts"
         default: return "Environment"
         }
     }
@@ -219,21 +235,23 @@ struct EnvironmentPanel: View {
 
                 PanelDivider()
 
+                let repoID = RepositoryID(path: repoManager.repoURL.path)
+
                 NavigationRow(icon: "doc.on.doc", title: "Changed Files", count: viewModel.stagedFiles.count + viewModel.unstagedFiles.count + viewModel.untrackedFiles.count) {
-                    router.push(.fileList)
+                    router.push(.fileList(repoID))
                 }
                 NavigationRow(icon: "tray", title: "Stash", count: viewModel.stashEntries.count) {
-                    router.push(.stash)
+                    router.push(.stash(repoID))
                 }
                 NavigationRow(icon: "exclamationmark.triangle", title: "Conflicts", count: viewModel.conflictedFiles.count) {
-                    router.push(.conflicts)
+                    router.push(.conflicts(repoID))
                 }
 
                 PanelDivider()
 
                 // Branch dropdown
                 DropdownRow(icon: "arrow.branch", title: "Branch", value: viewModel.currentBranch) {
-                    router.push(.branch)
+                    router.push(.branch(repoID))
                 }
 
                 // Commit section
@@ -252,15 +270,28 @@ struct EnvironmentPanel: View {
     }
 
     private var notAGitRepoView: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Not a git repository")
-                .font(.system(size: 13))
+        VStack(alignment: .center, spacing: 12) {
+            Image(systemName: "folder.badge.questionmark")
+                .font(.system(size: 32))
                 .foregroundStyle(.secondary)
-            Text(repoManager.repoURL.path)
-                .font(.system(size: 11, design: .monospaced)) // Path is monospaced
-                .foregroundStyle(.tertiary)
-                .textSelection(.enabled)
+            
+            Text("No Repository Selected")
+                .font(.system(size: 14, weight: .medium))
+            
+            Text("Select a valid Git repository to view its status.")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+            
+            Button("Choose Repository...") {
+                showRepoPicker = true
+            }
+            .buttonStyle(.borderedProminent)
+            .padding(.top, 4)
         }
+        .frame(maxWidth: .infinity, minHeight: 200)
+        .padding()
     }
 
     private var repoHeaderCard: some View {

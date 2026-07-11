@@ -580,10 +580,10 @@ final class ViewModelTests: XCTestCase {
 
     func testFilteredBranches_emptySearchReturnsAll() {
         let vm = GitPanelViewModel(repoManager: RepoManager(), settings: AppSettings())
-        vm.branches = [
+        vm.branchesState = .loaded([
             GitBranch(name: "main", isCurrent: true),
             GitBranch(name: "feature", isCurrent: false)
-        ]
+        ], nil)
         vm.branchSearchText = ""
 
         XCTAssertEqual(vm.filteredBranches.count, 2)
@@ -591,12 +591,12 @@ final class ViewModelTests: XCTestCase {
 
     func testFilteredBranches_filtersBySearchText() {
         let vm = GitPanelViewModel(repoManager: RepoManager(), settings: AppSettings())
-        vm.branches = [
+        vm.branchesState = .loaded([
             GitBranch(name: "main", isCurrent: true),
             GitBranch(name: "feature-auth", isCurrent: false),
             GitBranch(name: "feature-api", isCurrent: false),
             GitBranch(name: "bugfix", isCurrent: false)
-        ]
+        ], nil)
         vm.branchSearchText = "feature"
 
         XCTAssertEqual(vm.filteredBranches.count, 2)
@@ -604,10 +604,10 @@ final class ViewModelTests: XCTestCase {
 
     func testFilteredBranches_caseInsensitive() {
         let vm = GitPanelViewModel(repoManager: RepoManager(), settings: AppSettings())
-        vm.branches = [
+        vm.branchesState = .loaded([
             GitBranch(name: "Main", isCurrent: true),
             GitBranch(name: "FEATURE", isCurrent: false)
-        ]
+        ], nil)
         vm.branchSearchText = "feature"
 
         XCTAssertEqual(vm.filteredBranches.count, 1)
@@ -615,9 +615,9 @@ final class ViewModelTests: XCTestCase {
 
     func testFilteredBranches_noMatch() {
         let vm = GitPanelViewModel(repoManager: RepoManager(), settings: AppSettings())
-        vm.branches = [
+        vm.branchesState = .loaded([
             GitBranch(name: "main", isCurrent: true)
-        ]
+        ], nil)
         vm.branchSearchText = "nonexistent"
 
         XCTAssertTrue(vm.filteredBranches.isEmpty)
@@ -730,7 +730,7 @@ final class ViewModelTests: XCTestCase {
         let vm = try makeVM()
         await vm.refresh()
 
-        let beforeStaged = vm.state.stagedCount
+        _ = vm.state.stagedCount
 
         try "new".write(
             to: tempDir.appendingPathComponent("new.txt"),
@@ -855,5 +855,37 @@ final class ViewModelTests: XCTestCase {
         await vm.stashChanges()
         // Should complete without error
         XCTAssertEqual(vm.stashEntries.count, 1)
+    }
+    // MARK: - Branch Loading Tests
+
+    func testUpdateBranches_success_setsLoadedWithLocalGit() async throws {
+        try initGit()
+        try createCommit("initial")
+        let vm = try makeVM()
+        
+        vm.updateBranches([GitBranch(name: "main", isCurrent: true)])
+        
+        if case .loaded(let data, let metadata) = vm.branchesState {
+            XCTAssertFalse(data.isEmpty)
+            XCTAssertEqual(metadata?.source, .localGit)
+        } else {
+            XCTFail("Expected .loaded state with .localGit metadata")
+        }
+    }
+
+    func testUpdateBranches_failure_setsFailedWithoutProviderState() async throws {
+        let repoManager = RepoManager()
+        // Point to an invalid directory
+        try repoManager.setRepo(tempDir.appendingPathComponent("not-a-repo"))
+        let vm = GitPanelViewModel(repoManager: repoManager, settings: AppSettings())
+        
+        await vm.refresh()
+        try await Task.sleep(nanoseconds: 300_000_000) // Wait for detached task
+        
+        if case .failed(let error) = vm.branchesState {
+            XCTAssertNotNil(error)
+        } else {
+            XCTFail("Expected .failed state")
+        }
     }
 }

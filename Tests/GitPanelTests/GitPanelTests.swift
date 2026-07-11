@@ -724,9 +724,9 @@ final class GitPanelTests: XCTestCase {
     }
     
     func testShortcuts_handlesCmdRWhenFocused() async throws {
-        let delegate = AppDelegate()
+        _ = AppDelegate()
         // Simulate Cmd+R key event
-        let event = NSEvent.keyEvent(
+        _ = NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
             modifierFlags: .command,
@@ -851,7 +851,7 @@ final class GitPanelTests: XCTestCase {
     
     // Tier 1 tests
     func testEnvironmentMenuRoute_isReachable() async throws {
-        let route = PanelRoute.environment
+        let route = GitPanelRoute.environment
         XCTAssertEqual(route, .environment)
     }
     

@@ -1,29 +1,60 @@
 import SwiftUI
 
-public enum GitPanelRoute: Hashable {
-    case main
-    case branch
+public struct RepositoryID: Hashable, Sendable {
+    public let path: String
+    public init(path: String) {
+        self.path = path
+    }
+}
+
+public struct AIProviderID: Hashable, Sendable {
+    public let name: String
+    public init(name: String) {
+        self.name = name
+    }
+}
+
+public enum GitPanelRoute: Hashable, Sendable {
+    case main(RepositoryID)
+    case branch(RepositoryID)
+    case fileList(RepositoryID)
+    case stash(RepositoryID)
+    case conflicts(RepositoryID)
+    case diffViewer(repo: RepositoryID, path: String)
+    case repositoryInfo(RepositoryID)
+    
+    case usageDashboard(AIProviderID)
+    case usageDetail(AIProviderID)
+    case costDetail(AIProviderID)
+    case statusPage(AIProviderID)
+    
     case environment
-    case usage
-    case usageDetail
-    case costDetail
-    case repositoryInfo
-    case fileList
-    case diffViewer(String)
-    case stash
-    case conflicts
+    case settings
+    
+    public var isMain: Bool {
+        if case .main = self { return true }
+        return false
+    }
+    
+    // Legacy routes temporarily kept to prevent compile errors in EnvironmentMenuView, to be removed by Agent 1
     case multiAgent
     case spending
     case build
     case mcp
     case timeline
+    case usage
 }
 
+@Observable
 @MainActor
-@Observable public final class AppRouter {
+public final class AppRouter {
     public var path: [GitPanelRoute] = []
     
     public init() {}
+    
+    public var currentRoute: GitPanelRoute {
+        path.last ?? .environment
+    }
     
     public func push(_ route: GitPanelRoute) {
         path.append(route)
@@ -37,9 +68,5 @@ public enum GitPanelRoute: Hashable {
     
     public func popToRoot() {
         path.removeAll()
-    }
-    
-    public var currentRoute: GitPanelRoute {
-        path.last ?? .main
     }
 }

@@ -151,12 +151,14 @@ struct AgentDashboardView: View {
                 
                 // Links
                 VStack(spacing: 0) {
-                    Button(action: { router.push(.usageDetail) }) {
+                    let providerID = AIProviderID(name: providerName)
+                    
+                    Button(action: { router.push(.usageDetail(providerID)) }) {
                         MenuRow(title: "Plan Usage", hasChevron: true)
                     }
                     .buttonStyle(.plain)
                     
-                    Button(action: { router.push(.costDetail) }) {
+                    Button(action: { router.push(.costDetail(providerID)) }) {
                         MenuRow(title: "Cost", hasChevron: true)
                     }
                     .buttonStyle(.plain)
@@ -168,7 +170,7 @@ struct AgentDashboardView: View {
                     }
                     .buttonStyle(.plain)
                     
-                    Button(action: { router.push(.usage) }) {
+                    Button(action: { router.push(.usageDashboard(providerID)) }) {
                         MenuActionRow(icon: "chart.xyaxis.line", title: "Usage Dashboard")
                     }
                     .buttonStyle(.plain)

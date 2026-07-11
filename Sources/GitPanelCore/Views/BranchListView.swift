@@ -49,8 +49,18 @@ struct BranchListView: View {
                             Spacer()
                         }
                         .padding()
-                    case .loaded:
-                        ForEach(viewModel.filteredBranches) { branch in
+                    case .empty(let reason), .unavailable(let reason):
+                        HStack {
+                            Spacer()
+                            Text(reason)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                            Spacer()
+                        }
+                        .padding()
+                    case .loaded(let branches, _):
+                        ForEach(branches) { branch in
                         Button {
                             Task { await viewModel.checkout(branch) }
                             onBack()

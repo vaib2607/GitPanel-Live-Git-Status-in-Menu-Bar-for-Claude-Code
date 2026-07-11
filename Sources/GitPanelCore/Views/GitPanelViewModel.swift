@@ -99,18 +99,26 @@ import Combine
             showBanner("Failed to load changes list", detail: error.localizedDescription, kind: .warning)
         }
 
-        // Optional Git branches in detached background Task
+        // Optional Git branches in Task
         self.branchesState = .loading
-        Task.detached { [weak self, gitService] in
+        let service = self.gitService
+        Task { [weak self, service] in
             do {
-                let fetched = try await gitService.branches(repo: repo)
-                await MainActor.run {
-                    self?.branchesState = .loaded(fetched)
-                }
+                let fetched = try await service.branches(repo: repo)
+                guard !Task.isCancelled else { return }
+                self?.branchesState = .loaded(fetched, DataMetadata(source: .localGit))
+            } catch is CancellationError {
+                return
             } catch {
-                await MainActor.run {
-                    self?.branchesState = .failed(error)
-                }
+                guard !Task.isCancelled else { return }
+                let userError = UserFacingError(
+                    title: "Couldn't Load Branches",
+                    message: "Git could not read branches for this repository: \(error.localizedDescription)",
+                    recoveryAction: RecoveryAction(title: "Retry", type: .retry),
+                    technicalDiagnosticsID: "GIT_BRANCH",
+                    severity: .error
+                )
+                self?.branchesState = .failed(userError)
             }
         }
 
@@ -154,7 +162,7 @@ import Combine
     }
 
     func updateBranches(_ fetchedBranches: [GitBranch]) {
-        self.branchesState = .loaded(fetchedBranches)
+        self.branchesState = .loaded(fetchedBranches, DataMetadata(source: .localGit))
     }
 
     func updatePRStatus(_ fetchedPRStatus: PRStatus) {
