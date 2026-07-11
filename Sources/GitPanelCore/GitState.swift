@@ -176,6 +176,20 @@ public struct UsageData: Sendable, Hashable {
     }
 }
 
+public struct GitCommit: Identifiable, Equatable, Sendable, Hashable {
+    public let id: String
+    public let message: String
+    public let author: String
+    public let date: Date
+    
+    public init(id: String, message: String, author: String, date: Date) {
+        self.id = id
+        self.message = message
+        self.author = author
+        self.date = date
+    }
+}
+
 public enum EnvironmentMode: String, CaseIterable, Sendable, Identifiable {
     case local = "Work locally"
     case codex = "Connect Codex web"
@@ -294,7 +308,7 @@ public struct GitStatus: Identifiable, Hashable {
     }
 }
 
-public struct GitStateSnapshot: Sendable {
+public struct GitStateSnapshot: Equatable, Sendable {
     public let isGitRepo: Bool
     public let repoName: String
     public let branchName: String

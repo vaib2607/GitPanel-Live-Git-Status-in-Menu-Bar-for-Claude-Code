@@ -6,7 +6,7 @@ struct AgentDashboardView: View {
     let providerName: String
     let isPro: Bool
     let color: Color
-    @Bindable var engine = AIEngine.shared
+    @Bindable var viewModel: GitPanelViewModel
     
     var body: some View {
         ScrollView {
@@ -16,7 +16,7 @@ struct AgentDashboardView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(providerName)
                             .font(.system(size: 16, weight: .bold))
-                        Text("Updated \(timeAgo)")
+                        Text("Usage updated based on logs")
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                     }
@@ -31,119 +31,48 @@ struct AgentDashboardView: View {
                 PanelDivider()
                 
                 // Session Progress
+                // Session Progress
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Session")
+                    Text("Session Usage")
                         .font(.system(size: 14, weight: .bold))
                     
-                    ProgressView(value: 0.34)
-                        .progressViewStyle(LinearProgressViewStyle(tint: color))
-                        .frame(height: 6)
-                        .scaleEffect(x: 1, y: 2, anchor: .center)
-                    
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text("34% used")
-                                .font(.system(size: 11, weight: .bold))
-                            if !isPro {
-                                Text("20% in deficit")
+                    switch viewModel.usageState {
+                    case .idle:
+                        Color.clear.onAppear { Task { await viewModel.refresh() } }
+                    case .loading:
+                        ProgressView("Loading usage...")
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    case .failed(let error):
+                        ErrorRecoveryView(
+                            error: error,
+                            retryAction: { Task { await viewModel.refresh() } }
+                        )
+                    case .loaded(let usage, _):
+                        let cost = usage.modelBreakdown.filter { $0.key.lowercased().contains(providerName.lowercased()) }.values.reduce(0, +)
+                        
+                        // Fake progress since we don't have hard limits right now
+                        ProgressView(value: min(cost / 10.0, 1.0))
+                            .progressViewStyle(LinearProgressViewStyle(tint: color))
+                            .frame(height: 6)
+                            .scaleEffect(x: 1, y: 2, anchor: .center)
+                        
+                        HStack {
+                            VStack(alignment: .leading) {
+                                Text(String(format: "$%.2f cost", cost))
+                                    .font(.system(size: 11, weight: .bold))
+                            }
+                            Spacer()
+                            VStack(alignment: .trailing) {
+                                Text("Usage tracked from logs")
                                     .font(.system(size: 11))
                                     .foregroundStyle(.secondary)
                             }
                         }
-                        Spacer()
-                        VStack(alignment: .trailing) {
-                            Text("Resets 6 Aug at 10:03 PM")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                            Text("Projected empty in 8d 1h")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                        }
+                    case .empty(let reason), .unavailable(let reason):
+                        Text(reason)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
                     }
-                }
-                .padding(.horizontal, 16)
-                
-                // Weekly Progress
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Code review")
-                        .font(.system(size: 14, weight: .bold))
-                    
-                    ProgressView(value: 0.34)
-                        .progressViewStyle(LinearProgressViewStyle(tint: color))
-                        .frame(height: 6)
-                        .scaleEffect(x: 1, y: 2, anchor: .center)
-                    
-                    Text("34% used")
-                        .font(.system(size: 11, weight: .bold))
-                }
-                .padding(.horizontal, 16)
-                
-                PanelDivider()
-                
-                // Stats Grid
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Today")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                            Text(String(format: "$%.2f", CostEngine.shared.todayCost))
-                                .font(.system(size: 16, weight: .bold))
-                        }
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("30d tokens")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                            Text("608M")
-                                .font(.system(size: 16, weight: .bold))
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    
-                    VStack(alignment: .leading, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("30d cost")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                            Text(String(format: "$%.2f", CostEngine.shared.thisMonthCost))
-                                .font(.system(size: 16, weight: .bold))
-                        }
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Latest tokens")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                            Text(latestTokensText)
-                                .font(.system(size: 16, weight: .bold))
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .padding(.horizontal, 16)
-                
-                // Chart Placeholder
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text("$47")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                    
-                    HStack(alignment: .bottom, spacing: 2) {
-                        ForEach(0..<10) { i in
-                            Rectangle()
-                                .fill(color)
-                                .frame(height: CGFloat.random(in: 10...50))
-                        }
-                    }
-                    .frame(height: 50)
-                }
-                .padding(.horizontal, 16)
-                
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Top model: \(providerName == "Claude" ? "claude-sonnet-5" : "gpt-4o")")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                    Text("Estimated from local logs for the selected account")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.tertiary)
                 }
                 .padding(.horizontal, 16)
                 
@@ -162,39 +91,10 @@ struct AgentDashboardView: View {
                         MenuRow(title: "Cost", hasChevron: true)
                     }
                     .buttonStyle(.plain)
-                    
-                    PanelDivider()
-                    
-                    Button(action: { /* Add account logic */ }) {
-                        MenuActionRow(icon: "plus", title: "Add Account...")
-                    }
-                    .buttonStyle(.plain)
-                    
-                    Button(action: { router.push(.usageDashboard(providerID)) }) {
-                        MenuActionRow(icon: "chart.xyaxis.line", title: "Usage Dashboard")
-                    }
-                    .buttonStyle(.plain)
-                    
-                    MenuRow(title: "Status Page", hasChevron: false)
                 }
             }
             .padding(.bottom, 16)
         }
-    }
-    
-    private var timeAgo: String {
-        if let provider = engine.providers.first(where: { $0.name.contains(providerName) }), provider.isRunning {
-            return "Just now"
-        }
-        return "21 hr ago"
-    }
-    
-    private var latestTokensText: String {
-        if let provider = engine.providers.first(where: { $0.name.contains(providerName) }),
-           let usage = provider.tokenUsage {
-            return "\(usage.total / 1000)K"
-        }
-        return "0"
     }
 }
 

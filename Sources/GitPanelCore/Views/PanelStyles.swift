@@ -3,7 +3,7 @@ import SwiftUI
 // MARK: - Diff summary view (CodexBar-style)
 
 struct DiffSummaryView: View {
-    let state: GitState
+    let state: GitStateSnapshot
 
     var body: some View {
         HStack(spacing: 4) {
@@ -47,7 +47,7 @@ struct DiffSummaryView: View {
 // MARK: - File stats chips
 
 struct FileStatsView: View {
-    let state: GitState
+    let state: GitStateSnapshot
 
     var body: some View {
         HStack(spacing: 4) {
@@ -93,7 +93,7 @@ struct FileStatsView: View {
 // MARK: - Ahead/behind badges
 
 struct AheadBehindBadges: View {
-    let state: GitState
+    let state: GitStateSnapshot
 
     var body: some View {
         HStack(spacing: 4) {

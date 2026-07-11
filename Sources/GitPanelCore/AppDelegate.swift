@@ -93,7 +93,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         var tip = s.branchName
         if s.isAheadOfRemote {
-            tip += " ↑\(s.commitCount)"
+            tip += " ↑"
         }
         button.toolTip = tip
     }

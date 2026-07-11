@@ -13,32 +13,65 @@ struct CostDetailView: View {
             
             PanelDivider()
             
-            VStack(alignment: .leading, spacing: 12) {
-                Text(String(format: "Total Cost: $%.2f", viewModel.usage.cost))
-                    .font(.system(size: 14))
-                
-                if !viewModel.usage.modelBreakdown.isEmpty {
-                    Text("By Model:")
-                        .font(.system(size: 14, weight: .semibold))
-                        .padding(.top, 8)
-                    
-                    ForEach(Array(viewModel.usage.modelBreakdown.keys.sorted()), id: \.self) { model in
-                        if let cost = viewModel.usage.modelBreakdown[model] {
-                            HStack {
-                                Text(model)
-                                    .font(.system(size: 12))
-                                Spacer()
-                                Text(String(format: "$%.4f", cost))
-                                    .font(.system(size: 12))
-                            }
-                        }
-                    }
+            switch viewModel.usageState {
+            case .idle:
+                Color.clear.onAppear {
+                    Task { await viewModel.refresh() }
                 }
+            case .loading:
+                VStack {
+                    Spacer()
+                    ProgressView("Loading cost data...")
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .failed(let error):
+                ErrorRecoveryView(
+                    error: error,
+                    retryAction: { Task { await viewModel.refresh() } }
+                )
+            case .loaded(let usage, _):
+                loadedContentView(usage: usage)
+            case .empty(let reason), .unavailable(let reason):
+                VStack {
+                    Spacer()
+                    Text(reason)
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .padding(.horizontal, 16)
             
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+    
+    @ViewBuilder
+    private func loadedContentView(usage: UsageData) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(String(format: "Total Cost: $%.2f", usage.cost))
+                .font(.system(size: 14))
+            
+            if !usage.modelBreakdown.isEmpty {
+                Text("By Model:")
+                    .font(.system(size: 14, weight: .semibold))
+                    .padding(.top, 8)
+                
+                ForEach(Array(usage.modelBreakdown.keys.sorted()), id: \.self) { model in
+                    if let cost = usage.modelBreakdown[model] {
+                        HStack {
+                            Text(model)
+                                .font(.system(size: 12))
+                            Spacer()
+                            Text(String(format: "$%.4f", cost))
+                                .font(.system(size: 12))
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 16)
     }
 }

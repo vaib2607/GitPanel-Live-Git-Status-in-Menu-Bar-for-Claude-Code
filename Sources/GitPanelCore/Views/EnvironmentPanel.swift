@@ -63,10 +63,10 @@ struct EnvironmentPanel: View {
                 overviewPanelContent
             }
         } else if selectedTab == .codex {
-            AgentDashboardView(providerName: "Codex", isPro: false, color: .blue)
+            AgentDashboardView(providerName: "Codex", isPro: false, color: .blue, viewModel: viewModel)
                 .environment(router)
         } else if selectedTab == .claude {
-            AgentDashboardView(providerName: "Claude", isPro: true, color: .orange)
+            AgentDashboardView(providerName: "Claude", isPro: true, color: .orange, viewModel: viewModel)
                 .environment(router)
         }
     }
@@ -208,64 +208,90 @@ struct EnvironmentPanel: View {
 
     private var mainContent: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if !viewModel.isGitRepo {
+            switch viewModel.repositoryState {
+            case .idle:
+                Color.clear.onAppear { Task { await viewModel.refresh() } }
+            case .loading:
+                VStack {
+                    Spacer()
+                    ProgressView()
+                        .controlSize(.regular)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, minHeight: 200)
+            case .failed(let error):
+                ErrorRecoveryView(
+                    error: error,
+                    retryAction: { Task { await viewModel.refresh() } }
+                )
+            case .loaded(let snapshot, _):
+                if !snapshot.status.isGitRepo {
+                    notAGitRepoView
+                } else {
+                    loadedRepoContent(snapshot: snapshot)
+                }
+            case .empty(_), .unavailable(_):
                 notAGitRepoView
-            } else {
-                // Header card: repo name + branch + state
-                repoHeaderCard
-
-                // Diff summary
-                DiffSummaryView(state: viewModel.state)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-
-                // File stats chips
-                if viewModel.state.hasChanges {
-                    FileStatsView(state: viewModel.state)
-                        .padding(.horizontal, 12)
-                        .padding(.bottom, 8)
-                }
-
-                // Ahead/behind badges
-                if viewModel.ahead > 0 || viewModel.behind > 0 {
-                    AheadBehindBadges(state: viewModel.state)
-                        .padding(.horizontal, 12)
-                        .padding(.bottom, 8)
-                }
-
-                PanelDivider()
-
-                let repoID = RepositoryID(path: repoManager.repoURL.path)
-
-                NavigationRow(icon: "doc.on.doc", title: "Changed Files", count: viewModel.stagedFiles.count + viewModel.unstagedFiles.count + viewModel.untrackedFiles.count) {
-                    router.push(.fileList(repoID))
-                }
-                NavigationRow(icon: "tray", title: "Stash", count: viewModel.stashEntries.count) {
-                    router.push(.stash(repoID))
-                }
-                NavigationRow(icon: "exclamationmark.triangle", title: "Conflicts", count: viewModel.conflictedFiles.count) {
-                    router.push(.conflicts(repoID))
-                }
-
-                PanelDivider()
-
-                // Branch dropdown
-                DropdownRow(icon: "arrow.branch", title: "Branch", value: viewModel.currentBranch) {
-                    router.push(.branch(repoID))
-                }
-
-                // Commit section
-                CommitSection(viewModel: viewModel)
-
-                PanelDivider()
-
-                // PR status
-                PRStatusRow(viewModel: viewModel)
-
-                // Footer actions
-                PanelDivider()
-                FooterActionsView(viewModel: viewModel)
             }
+        }
+    }
+
+    private func loadedRepoContent(snapshot: RepositorySnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header card: repo name + branch + state
+            repoHeaderCard(snapshot: snapshot)
+
+            // Diff summary
+            DiffSummaryView(state: snapshot.status)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+
+            // File stats chips
+            if snapshot.status.hasChanges {
+                FileStatsView(state: snapshot.status)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
+            }
+
+            // Ahead/behind badges
+            if snapshot.status.isAheadOfRemote || snapshot.status.isBehindRemote {
+                AheadBehindBadges(state: snapshot.status)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
+            }
+
+                PanelDivider()
+
+            let repoID = RepositoryID(path: repoManager.repoURL.path)
+
+            NavigationRow(icon: "doc.on.doc", title: "Changed Files", count: snapshot.changes.staged.count + snapshot.changes.unstaged.count + snapshot.changes.untracked.count) {
+                router.push(.fileList(repoID))
+            }
+            NavigationRow(icon: "tray", title: "Stash", count: viewModel.stashEntries.count) {
+                router.push(.stash(repoID))
+            }
+            NavigationRow(icon: "exclamationmark.triangle", title: "Conflicts", count: viewModel.conflictedFiles.count) {
+                router.push(.conflicts(repoID))
+            }
+
+            PanelDivider()
+
+            // Branch dropdown
+            DropdownRow(icon: "arrow.branch", title: "Branch", value: snapshot.status.branchName) {
+                router.push(.branch(repoID))
+            }
+
+            // Commit section
+            CommitSection(viewModel: viewModel)
+
+            PanelDivider()
+
+            // PR status
+            PRStatusRow(viewModel: viewModel)
+
+            // Footer actions
+            PanelDivider()
+            FooterActionsView(viewModel: viewModel)
         }
     }
 
@@ -294,7 +320,7 @@ struct EnvironmentPanel: View {
         .padding()
     }
 
-    private var repoHeaderCard: some View {
+    private func repoHeaderCard(snapshot: RepositorySnapshot) -> some View {
         HStack(spacing: 8) {
             // Repo icon
             Image(systemName: "folder.fill")
@@ -303,15 +329,15 @@ struct EnvironmentPanel: View {
                 .frame(width: 24)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(viewModel.state.repoName)
+                Text(snapshot.status.repoName)
                     .font(.system(size: 13, weight: .medium))
                     .lineLimit(1)
                 HStack(spacing: 6) {
-                    Text(viewModel.currentBranch)
+                    Text(snapshot.status.branchName)
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
-                    RepoStateBadge(state: viewModel.state.repoState)
+                    RepoStateBadge(state: snapshot.status.repoState)
                 }
             }
             Spacer()
@@ -334,7 +360,7 @@ struct EnvironmentPanel: View {
             router.push(.environment)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Repository: \(viewModel.state.repoName), branch: \(viewModel.currentBranch)")
+        .accessibilityLabel("Repository: \(snapshot.status.repoName), branch: \(snapshot.status.branchName)")
         .accessibilityHint("Tap to open environment options")
         .contextMenu {
             Button("Refresh") { Task { await viewModel.refresh() } }
@@ -344,11 +370,40 @@ struct EnvironmentPanel: View {
             }
             Button("Copy Branch Name") {
                 NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(viewModel.currentBranch, forType: .string)
+                NSPasteboard.general.setString(snapshot.status.branchName, forType: .string)
             }
             Divider()
             Button("Select Repository…") { showRepoPicker = true }
         }
+    }
+}
+
+struct ErrorRecoveryView: View {
+    let error: UserFacingError
+    let retryAction: () -> Void
+    
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 32))
+                .foregroundStyle(.red)
+            
+            Text(error.title)
+                .font(.system(size: 14, weight: .medium))
+            
+            Text(error.message)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+            if let action = error.recoveryAction {
+                Button(action.title, action: retryAction)
+                    .buttonStyle(.borderedProminent)
+                    .padding(.top, 4)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 200)
+        .padding()
     }
 }
 

@@ -4,11 +4,13 @@ import Combine
 @MainActor
 @Observable final class GitPanelViewModel {
     // MARK: - State
-    var state = GitState()
+    var repositoryState: DataState<RepositorySnapshot> = .idle
     var branchesState: DataState<[GitBranch]> = .idle
     var branches: [GitBranch] { branchesState.value ?? [] }
+    var commitsState: DataState<[GitCommit]> = .idle
     var prStatus: PRStatus = .noPRs
-    var usage: UsageData = .init(tokens: 0, cost: 0, model: "", plan: "", isUsingPlan: false, modelBreakdown: [:], lastUpdated: Date())
+    var usageState: DataState<UsageData> = .idle
+    var usage: UsageData { usageState.value ?? .init(tokens: 0, cost: 0, model: "", plan: "", isUsingPlan: false, modelBreakdown: [:], lastUpdated: Date()) }
     var commitMessage: String = ""
     var banner: BannerMessage? = nil
     var isRefreshing: Bool = false
@@ -20,9 +22,6 @@ import Combine
     var environmentMode: EnvironmentMode = .production
     var isPerformingGitOperation: Bool = false
     var currentDiff: String = ""
-    var stagedFiles: [GitFile] = []
-    var unstagedFiles: [GitFile] = []
-    var untrackedFiles: [GitFile] = []
 
     // MARK: - Dependencies
     let gitService = GitService()
@@ -80,23 +79,17 @@ import Combine
         isRefreshing = true
         defer { isRefreshing = false }
 
-        // Core Git state update
+        repositoryState = .loading
         do {
             let snapshot = try await gitService.updateState(repo: repo)
-            state.apply(snapshot)
-        } catch {
-            showBanner("Git Refresh Failed", detail: error.localizedDescription, kind: .error)
-            return
-        }
-
-        // Fetch changed files
-        do {
             let files = try await gitService.fetchChangedFiles(repo: repo)
-            self.stagedFiles = files.staged
-            self.unstagedFiles = files.unstaged
-            self.untrackedFiles = files.untracked
+            let changes = ChangedFiles(staged: files.staged, unstaged: files.unstaged, untracked: files.untracked)
+            let repoSnap = RepositorySnapshot(status: snapshot, changes: changes)
+            self.repositoryState = .loaded(repoSnap, DataMetadata(source: .localGit))
+        } catch let error as ShellError {
+            self.repositoryState = .failed(error.userFacingError)
         } catch {
-            showBanner("Failed to load changes list", detail: error.localizedDescription, kind: .warning)
+            self.repositoryState = .failed(UserFacingError(title: "Git Error", message: error.localizedDescription, technicalDiagnosticsID: "GIT_ERR_UNKNOWN"))
         }
 
         // Optional Git branches in Task
@@ -109,16 +102,12 @@ import Combine
                 self?.branchesState = .loaded(fetched, DataMetadata(source: .localGit))
             } catch is CancellationError {
                 return
+            } catch let shellError as ShellError {
+                guard !Task.isCancelled else { return }
+                self?.branchesState = .failed(shellError.userFacingError)
             } catch {
                 guard !Task.isCancelled else { return }
-                let userError = UserFacingError(
-                    title: "Couldn't Load Branches",
-                    message: "Git could not read branches for this repository: \(error.localizedDescription)",
-                    recoveryAction: RecoveryAction(title: "Retry", type: .retry),
-                    technicalDiagnosticsID: "GIT_BRANCH",
-                    severity: .error
-                )
-                self?.branchesState = .failed(userError)
+                self?.branchesState = .failed(UserFacingError(title: "Error", message: error.localizedDescription, technicalDiagnosticsID: "UNKNOWN"))
             }
         }
 
@@ -140,12 +129,26 @@ import Combine
             Date().timeIntervalSince(lastRefresh) > 30
 
         if shouldRefreshUsage {
+            if self.usageState.value == nil {
+                self.usageState = .loading
+            }
             Task.detached { [weak self] in
                 do {
                     let u = try await UsageService.compute()
-                    await self?.updateUsage(u)
+                    await MainActor.run { [weak self] in
+                        self?.usageState = .loaded(u, DataMetadata(source: .localLogs))
+                        self?.lastUsageRefresh = Date()
+                    }
                 } catch {
-                    await self?.showBanner("Usage Sync Failed", detail: error.localizedDescription, kind: .warning)
+                    let userFacing = UserFacingError(
+                        title: "Usage Sync Failed",
+                        message: error.localizedDescription,
+                        recoveryAction: RecoveryAction(title: "Retry", type: .retry),
+                        technicalDiagnosticsID: "USAGE_SYNC_ERR"
+                    )
+                    await MainActor.run { [weak self] in
+                        self?.usageState = .failed(userFacing)
+                    }
                 }
             }
         }
@@ -170,7 +173,7 @@ import Combine
     }
 
     func updateUsage(_ fetchedUsage: UsageData) {
-        self.usage = fetchedUsage
+        self.usageState = .loaded(fetchedUsage, DataMetadata(source: .localLogs))
         self.lastUsageRefresh = Date()
     }
 
@@ -403,43 +406,59 @@ import Combine
     }
 
     var repoState: RepoState {
-        state.repoState
+        repositoryState.value?.status.repoState ?? .clean
     }
 
     var stateLabel: String {
-        state.repoState.label
+        repoState.label
     }
 
     var stateIcon: String {
-        state.repoState.icon
+        repoState.icon
     }
 
     var stateColor: Color {
-        state.repoState.color
+        repoState.color
     }
 
     var isGitRepo: Bool {
-        state.isGitRepo
+        repositoryState.value?.status.isGitRepo ?? false
+    }
+    
+    var state: GitStateSnapshot {
+        repositoryState.value?.status ?? GitStateSnapshot(isGitRepo: false, repoName: "Unknown", branchName: "", isAheadOfRemote: false, isBehindRemote: false, hasChanges: false, stagedCount: 0, unstagedCount: 0, untrackedCount: 0, conflictCount: 0, linesAdded: 0, linesDeleted: 0, lastCommitHash: "", lastCommitMessage: "", lastCommitDate: .distantPast, remotes: [], remoteName: "", submodules: [], branches: [], repoState: .clean)
     }
 
     var currentBranch: String {
-        state.branchName
+        repositoryState.value?.status.branchName ?? ""
     }
 
     var ahead: Int {
-        state.isAheadOfRemote ? 1 : 0
+        repositoryState.value?.status.isAheadOfRemote == true ? 1 : 0
     }
 
     var behind: Int {
-        state.isBehindRemote ? 1 : 0
+        repositoryState.value?.status.isBehindRemote == true ? 1 : 0
+    }
+
+    var stagedFiles: [GitFile] {
+        repositoryState.value?.changes.staged ?? []
+    }
+
+    var unstagedFiles: [GitFile] {
+        repositoryState.value?.changes.unstaged ?? []
+    }
+
+    var untrackedFiles: [GitFile] {
+        repositoryState.value?.changes.untracked ?? []
     }
 
     var remotes: [Remote] {
-        state.remotes
+        repositoryState.value?.status.remotes ?? []
     }
 
     var submodules: [Submodule] {
-        state.submodules
+        repositoryState.value?.status.submodules ?? []
     }
 
     var dependencies: [String] {
