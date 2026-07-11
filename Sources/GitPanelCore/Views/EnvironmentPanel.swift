@@ -6,11 +6,21 @@ enum PanelRoute: Hashable {
     case diffViewer(String)
     case stash
     case conflicts
+    case multiAgent
+    case spending
+    case build
+    case mcp
+    case timeline
+}
+
+enum AppTab {
+    case overview, codex, claude
 }
 
 struct EnvironmentPanel: View {
     var viewModel: GitPanelViewModel
     var repoManager: RepoManager
+    @State private var selectedTab: AppTab = .overview
     @State private var route: PanelRoute = .main
     @State private var showRepoPicker = false
     @State private var isDragTargeted = false
@@ -19,34 +29,72 @@ struct EnvironmentPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header
+            // Top Tab Bar
+            HStack(spacing: 0) {
+                TabButton(title: "Overview", icon: "square.grid.2x2", isSelected: selectedTab == .overview, color: .primary) { selectedTab = .overview }
+                TabButton(title: "Codex", icon: "bolt.fill", isSelected: selectedTab == .codex, color: .blue) { selectedTab = .codex }
+                TabButton(title: "Claude", icon: "sparkles", isSelected: selectedTab == .claude, color: .orange) { selectedTab = .claude }
+            }
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
+            
             PanelDivider()
+            
+            if selectedTab == .overview {
+                VStack(alignment: .leading, spacing: 0) {
+                    header
+                    PanelDivider()
 
-            switch route {
-            case .main:
-                mainContent
-            case .branch:
-                BranchListView(viewModel: viewModel, onBack: { route = .main })
-            case .environment:
-                EnvironmentMenuView(viewModel: viewModel, onBack: { route = .main }, onShowUsage: { route = .usage }, onShowRepoInfo: { route = .repositoryInfo })
-            case .usage:
-                UsageView(viewModel: viewModel)
-            case .repositoryInfo:
-                RepositoryInfoView(viewModel: viewModel)
-            case .fileList:
-                FileListView(viewModel: viewModel)
-            case .diffViewer(let path):
-                DiffViewerView(viewModel: viewModel, filePath: path, onBack: {
-                    viewModel.showingDiffFor = nil
-                    route = .fileList
-                })
-            case .stash:
-                StashView(viewModel: viewModel, onBack: { route = .main })
-            case .conflicts:
-                ConflictResolverView(viewModel: viewModel, onBack: { route = .main })
+                    switch route {
+                    case .main:
+                        mainContent
+                    case .branch:
+                        BranchListView(viewModel: viewModel, onBack: { route = .main })
+                    case .environment:
+                        EnvironmentMenuView(
+                            viewModel: viewModel,
+                            onBack: { route = .main },
+                            onShowUsage: { route = .usage },
+                            onShowRepoInfo: { route = .repositoryInfo },
+                            onShowMultiAgent: { route = .multiAgent },
+                            onShowSpending: { route = .spending },
+                            onShowBuild: { route = .build },
+                            onShowMCP: { route = .mcp },
+                            onShowTimeline: { route = .timeline }
+                        )
+                    case .usage:
+                        UsageView(viewModel: viewModel)
+                    case .repositoryInfo:
+                        RepositoryInfoView(viewModel: viewModel)
+                    case .fileList:
+                        FileListView(viewModel: viewModel)
+                    case .diffViewer(let path):
+                        DiffViewerView(viewModel: viewModel, filePath: path, onBack: {
+                            viewModel.showingDiffFor = nil
+                            route = .fileList
+                        })
+                    case .stash:
+                        StashView(viewModel: viewModel, onBack: { route = .main })
+                    case .conflicts:
+                        ConflictResolverView(viewModel: viewModel, onBack: { route = .main })
+                    case .multiAgent:
+                        MultiAgentDashboardView(onBack: { route = .main })
+                    case .spending:
+                        SpendingDashboardView(onBack: { route = .main })
+                    case .build:
+                        BuildStatusView(onBack: { route = .main })
+                    case .mcp:
+                        MCPStatusView(onBack: { route = .main })
+                    case .timeline:
+                        TimelineView(onBack: { route = .main })
+                    }
+                }
+            } else if selectedTab == .codex {
+                AgentDashboardView(providerName: "Codex", isPro: false, color: .blue)
+            } else if selectedTab == .claude {
+                AgentDashboardView(providerName: "Claude", isPro: true, color: .orange)
             }
         }
-        .padding(16)
         .frame(width: 360)
         .background(
             Group {
@@ -86,7 +134,7 @@ struct EnvironmentPanel: View {
             if route != .main {
                 Button {
                     switch route {
-                    case .repositoryInfo, .usage:
+                    case .repositoryInfo, .usage, .multiAgent, .spending:
                         route = .environment
                     case .diffViewer:
                         route = .fileList
@@ -105,10 +153,16 @@ struct EnvironmentPanel: View {
                 .accessibilityLabel("Go back")
                 .accessibilityHint("Returns to the previous panel")
             }
-            Image(systemName: "terminal")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.primary)
-            Text(route == .main ? "Environment" : title(for: route))
+            if let activeIcon = AIEngine.shared.activeProviderIcon {
+                Text(activeIcon)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.primary)
+            } else {
+                Image(systemName: "terminal")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.primary)
+            }
+            Text(route == .main ? (AIEngine.shared.activeProviderName ?? "Environment") : title(for: route))
                 .font(.system(size: 13, weight: .medium))
             Spacer()
             if route == .main {
@@ -366,6 +420,49 @@ struct NavigationRow: View {
         .frame(minHeight: 32)
         .padding(.horizontal, 8)
         .hoverable(radius: 6)
+    }
+}
+
+struct TabButton: View {
+    let title: String
+    let icon: String
+    let isSelected: Bool
+    let color: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .foregroundStyle(isSelected ? color : .secondary)
+                Text(title)
+                    .foregroundStyle(isSelected ? .primary : .secondary)
+            }
+            .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+            .padding(.vertical, 6)
+            .padding(.horizontal, 12)
+            .background(
+                Group {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(color.opacity(0.15))
+                    }
+                }
+            )
+            .overlay(
+                Group {
+                    if isSelected {
+                        VStack {
+                            Spacer()
+                            Rectangle()
+                                .fill(color)
+                                .frame(height: 2)
+                        }
+                    }
+                }
+            )
+        }
+        .buttonStyle(.plain)
     }
 }
 

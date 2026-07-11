@@ -5,11 +5,30 @@ struct CommitSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            TextField("Message", text: $viewModel.commitMessage)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 13))
-                .accessibilityLabel("Commit message")
-                .accessibilityHint("Enter a message for your commit")
+            HStack(spacing: 6) {
+                TextField("Message", text: $viewModel.commitMessage)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 13))
+                    .accessibilityLabel("Commit message")
+                    .accessibilityHint("Enter a message for your commit")
+                
+                Button {
+                    Task {
+                        viewModel.isPerformingGitOperation = true
+                        defer { viewModel.isPerformingGitOperation = false }
+                        let diff = await viewModel.fetchDiffCached(for: "")
+                        let msg = try? await CommitAssistant.shared.generateCommitMessage(diff: diff)
+                        if let msg = msg {
+                            viewModel.commitMessage = msg
+                        }
+                    }
+                } label: {
+                    Image(systemName: "sparkles")
+                        .foregroundStyle(.purple)
+                }
+                .buttonStyle(.plain)
+                .help("Auto-generate commit message")
+            }
 
             HStack(spacing: 6) {
                 Button {

@@ -53,10 +53,12 @@ import Combine
     func startWatching() {
         let repo = repoManager.repoURL
         fileWatcher.startWatching(repo: repo)
+        Task { await AIEngine.shared.start() }
     }
 
     func stopWatching() {
         fileWatcher.stop()
+        Task { await AIEngine.shared.stop() }
     }
 
     // MARK: - Refresh (0.5s debounce via Task)
@@ -72,6 +74,7 @@ import Combine
     func refresh() async {
         let repo = repoManager.repoURL
         guard !isPerformingGitOperation else { return }
+        guard !isRefreshing else { return }
 
         isRefreshing = true
         defer { isRefreshing = false }

@@ -5,6 +5,11 @@ struct EnvironmentMenuView: View {
     let onBack: () -> Void
     let onShowUsage: () -> Void
     let onShowRepoInfo: () -> Void
+    let onShowMultiAgent: () -> Void
+    let onShowSpending: () -> Void
+    let onShowBuild: () -> Void
+    let onShowMCP: () -> Void
+    let onShowTimeline: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -90,6 +95,117 @@ struct EnvironmentMenuView: View {
             .hoverable(radius: 8)
             .accessibilityLabel("Repository Info")
             .accessibilityHint("Shows remotes and submodules for this repository")
+
+            Divider().padding(.vertical, 8)
+
+            SectionHeader(title: "Dashboards")
+                .padding(.horizontal, 8)
+                .padding(.bottom, 4)
+            
+            Button {
+                onShowMultiAgent()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "cpu")
+                        .font(.system(size: 13))
+                        .frame(width: 16)
+                    Text("AI Providers")
+                        .font(.system(size: 13))
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+                .padding(.horizontal, 8)
+                .padding(.vertical, 8)
+            }
+            .buttonStyle(.plain)
+            .hoverable(radius: 8)
+            
+            Button {
+                onShowSpending()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "dollarsign.circle")
+                        .font(.system(size: 13))
+                        .frame(width: 16)
+                    Text("Spending")
+                        .font(.system(size: 13))
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+                .padding(.horizontal, 8)
+                .padding(.vertical, 8)
+            }
+            .buttonStyle(.plain)
+            .hoverable(radius: 8)
+            
+            Button {
+                onShowBuild()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "hammer.fill")
+                        .font(.system(size: 13))
+                        .frame(width: 16)
+                    Text("Build Monitor")
+                        .font(.system(size: 13))
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+                .padding(.horizontal, 8)
+                .padding(.vertical, 8)
+            }
+            .buttonStyle(.plain)
+            .hoverable(radius: 8)
+            
+            Button {
+                onShowMCP()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "network")
+                        .font(.system(size: 13))
+                        .frame(width: 16)
+                    Text("MCP Servers")
+                        .font(.system(size: 13))
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+                .padding(.horizontal, 8)
+                .padding(.vertical, 8)
+            }
+            .buttonStyle(.plain)
+            .hoverable(radius: 8)
+            
+            Button {
+                onShowTimeline()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 13))
+                        .frame(width: 16)
+                    Text("Deep Work Timeline")
+                        .font(.system(size: 13))
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+                .padding(.horizontal, 8)
+                .padding(.vertical, 8)
+            }
+            .buttonStyle(.plain)
+            .hoverable(radius: 8)
 
             Divider().padding(.vertical, 8)
 
