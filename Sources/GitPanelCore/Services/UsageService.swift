@@ -73,7 +73,26 @@ private struct CachedResults: Codable {
 // MARK: - UsageService
 
 struct UsageService {
+    private static let lock = NSLock()
+    private static var _homeDirectoryOverride: String?
+
+    static var homeDirectoryOverride: String? {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return _homeDirectoryOverride
+        }
+        set {
+            lock.lock()
+            defer { lock.unlock() }
+            _homeDirectoryOverride = newValue
+        }
+    }
+
     private static var homeDirectory: String {
+        if let override = homeDirectoryOverride {
+            return override
+        }
         if let envHome = ProcessInfo.processInfo.environment["HOME"], !envHome.isEmpty {
             return envHome
         }
@@ -97,9 +116,9 @@ struct UsageService {
 
     // MARK: - Compute
 
-    static func compute(timeRange: UsageTimeRange = .allTime) async throws -> UsageData {
-        let base = (homeDirectory as NSString).appendingPathComponent(".claude/projects")
-        let fileURLs = getJsonlFiles(in: base)
+    private static func performLockedRepaintAndFilter(fileURLs: [URL], timeRange: UsageTimeRange) -> [String: TokenCounts] {
+        lock.lock()
+        defer { lock.unlock() }
 
         // Try incremental parse from cache, otherwise full reparse
         let shouldRepaint = needsRepaint(fileURLs)
@@ -123,41 +142,52 @@ struct UsageService {
                 }
             }
         }
+        return byModel
+    }
 
-        let table = loadTable()
-        var totalCost = 0.0
-        var total = TokenCounts()
-        var topModel = ""
-        var topCount = 0
-        var modelBreakdown: [String: Double] = [:]
+    static func compute(timeRange: UsageTimeRange = .allTime) async throws -> UsageData {
+        let base = (homeDirectory as NSString).appendingPathComponent(".claude/projects")
 
-        for (model, t) in byModel {
-            total.input += t.input
-            total.output += t.output
-            total.cacheRead += t.cacheRead
-            total.cacheCreation += t.cacheCreation
-            if let p = price(for: model, table: table) {
-                let modelCost = p.cost(for: t)
-                totalCost += modelCost
-                modelBreakdown[model] = modelCost
+        return try await Task.detached {
+            let fileURLs = getJsonlFiles(in: base)
+
+            let byModel = performLockedRepaintAndFilter(fileURLs: fileURLs, timeRange: timeRange)
+
+            let table = loadTable()
+            var totalCost = 0.0
+            var total = TokenCounts()
+            var topModel = ""
+            var topCount = 0
+            var modelBreakdown: [String: Double] = [:]
+
+            for (model, t) in byModel {
+                total.input += t.input
+                total.output += t.output
+                total.cacheRead += t.cacheRead
+                total.cacheCreation += t.cacheCreation
+                if let p = price(for: model, table: table) {
+                    let modelCost = p.cost(for: t)
+                    totalCost += modelCost
+                    modelBreakdown[model] = modelCost
+                }
+                if t.total > topCount {
+                    topCount = t.total
+                    topModel = model
+                }
             }
-            if t.total > topCount {
-                topCount = t.total
-                topModel = model
-            }
-        }
 
-        let cursorPlan = try await readCursorPlan()
+            let cursorPlan = try await readCursorPlan()
 
-        return UsageData(
-            tokens: total.total,
-            cost: totalCost,
-            model: topModel,
-            plan: cursorPlan ?? "",
-            isUsingPlan: cursorPlan != nil,
-            modelBreakdown: modelBreakdown,
-            lastUpdated: Date()
-        )
+            return UsageData(
+                tokens: total.total,
+                cost: totalCost,
+                model: topModel,
+                plan: cursorPlan ?? "",
+                isUsingPlan: cursorPlan != nil,
+                modelBreakdown: modelBreakdown,
+                lastUpdated: Date()
+            )
+        }.value
     }
 
     // MARK: - File Discovery
@@ -376,10 +406,16 @@ struct UsageService {
         guard FileManager.default.fileExists(atPath: db) else { return nil }
         guard let resolvedSqlite = ShellRunner.resolveBinary("sqlite3") else { return nil }
 
-        let output = try await ShellRunner.run(
-            resolvedSqlite,
-            ["-readonly", db, "SELECT value FROM ItemTable WHERE key='cursorPlusSubscription'"]
-        )
+        let output: String
+        do {
+            output = try await ShellRunner.run(
+                resolvedSqlite,
+                ["-readonly", db, "SELECT value FROM ItemTable WHERE key='cursorPlusSubscription'"]
+            )
+        } catch {
+            return nil
+        }
+        
         var v = output.trimmingCharacters(in: .whitespacesAndNewlines)
         if v.hasPrefix("\"") { v = String(v.dropFirst()) }
         if v.hasSuffix("\"") { v = String(v.dropLast()) }

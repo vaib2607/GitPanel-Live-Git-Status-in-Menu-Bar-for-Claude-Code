@@ -4,11 +4,9 @@ struct StashView: View {
     var viewModel: GitPanelViewModel
     var onBack: () -> Void
 
-    @State private var stashes: [GitStash] = []
     @State private var isLoading = false
     @State private var showStashDialog = false
     @State private var stashMessage = ""
-    @State private var selectedStash: GitStash?
     @State private var expandedStashId: String?
     @State private var stashDiff: String?
     @State private var isLoadingDiff = false
@@ -21,13 +19,12 @@ struct StashView: View {
                 Spacer()
                 ProgressView("Loading stashes...")
                 Spacer()
-            } else if stashes.isEmpty {
+            } else if viewModel.stashEntries.isEmpty {
                 emptyState
             } else {
                 stashList
             }
         }
-        .font(.system(.body, design: .monospaced))
         .task {
             await loadStashes()
         }
@@ -42,38 +39,38 @@ struct StashView: View {
         HStack {
             Button(action: onBack) {
                 Image(systemName: "chevron.left")
-                    .font(.system(.body, design: .monospaced).weight(.semibold))
+                    .font(.body.weight(.semibold))
             }
             .buttonStyle(.plain)
 
             Text("Stash")
-                .font(.system(.headline, design: .monospaced))
+                .font(.headline)
 
             Spacer()
 
             HStack(spacing: 8) {
                 Button(action: { showStashDialog = true }) {
                     Label("Stash Changes", systemImage: "plus")
-                        .font(.system(.caption, design: .monospaced))
+                        .font(.caption)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
 
                 Button(action: popTopStash) {
                     Label("Pop", systemImage: "arrow.up.doc")
-                        .font(.system(.caption, design: .monospaced))
+                        .font(.caption)
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .disabled(stashes.isEmpty)
+                .disabled(viewModel.stashEntries.isEmpty)
 
                 Button(action: dropTopStash) {
                     Label("Drop", systemImage: "trash")
-                        .font(.system(.caption, design: .monospaced))
+                        .font(.caption)
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .disabled(stashes.isEmpty)
+                .disabled(viewModel.stashEntries.isEmpty)
             }
         }
         .padding(.horizontal, 12)
@@ -90,10 +87,10 @@ struct StashView: View {
                 .font(.system(size: 40))
                 .foregroundStyle(.secondary)
             Text("No stashes")
-                .font(.system(.body, design: .monospaced))
+                .font(.body)
                 .foregroundStyle(.secondary)
             Text("Stash your changes to save them for later.")
-                .font(.system(.caption, design: .monospaced))
+                .font(.caption)
                 .foregroundStyle(.tertiary)
             Spacer()
         }
@@ -104,9 +101,9 @@ struct StashView: View {
     private var stashList: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
-                ForEach(stashes) { stash in
-                    stashRow(stash)
-                    if stash.id != stashes.last?.id {
+                ForEach(Array(viewModel.stashEntries.enumerated()), id: \.element.id) { index, stash in
+                    stashRow(stash, index: index)
+                    if stash.id != viewModel.stashEntries.last?.id {
                         Divider()
                             .padding(.leading, 12)
                     }
@@ -117,7 +114,7 @@ struct StashView: View {
 
     // MARK: - Stash Row
 
-    private func stashRow(_ stash: GitStash) -> some View {
+    private func stashRow(_ stash: StashEntry, index: Int) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -125,18 +122,10 @@ struct StashView: View {
                         Text(stash.ref)
                             .font(.system(.caption, design: .monospaced))
                             .foregroundStyle(.secondary)
-
-                        if let timestamp = stash.timestamp {
-                            Text("·")
-                                .foregroundStyle(.tertiary)
-                            Text(timestamp)
-                                .font(.system(.caption2, design: .monospaced))
-                                .foregroundStyle(.tertiary)
-                        }
                     }
 
                     Text(stash.message)
-                        .font(.system(.body, design: .monospaced))
+                        .font(.body)
                         .lineLimit(2)
                         .foregroundStyle(.primary)
                 }
@@ -144,7 +133,7 @@ struct StashView: View {
                 Spacer()
 
                 Image(systemName: expandedStashId == stash.id ? "chevron.up" : "chevron.down")
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.caption)
                     .foregroundStyle(.tertiary)
             }
             .padding(.horizontal, 12)
@@ -164,23 +153,23 @@ struct StashView: View {
                         stashDiff = nil
                     } else {
                         expandedStashId = stash.id
-                        loadDiff(for: stash)
+                        loadDiff(for: index)
                     }
                 }
             }
             .contextMenu {
-                Button(action: { popStash(stash) }) {
+                Button(action: { popStash(index: index) }) {
                     Label("Pop", systemImage: "arrow.up.doc")
                 }
-                Button(action: { dropStash(stash) }) {
+                Button(action: { dropStash(index: index) }) {
                     Label("Drop", systemImage: "trash")
                 }
                 Divider()
-                Button(action: { showDiff(stash) }) {
+                Button(action: { showDiff(index: index, ref: stash.ref) }) {
                     Label("Show Diff", systemImage: "doc.text.magnifyingglass")
                 }
                 Divider()
-                Button(action: { copyRef(stash) }) {
+                Button(action: { copyRef(ref: stash.ref) }) {
                     Label("Copy Ref", systemImage: "doc.on.doc")
                 }
             }
@@ -217,7 +206,7 @@ struct StashView: View {
                 HStack {
                     Spacer()
                     Text("No diff available")
-                        .font(.system(.caption, design: .monospaced))
+                        .font(.caption)
                         .foregroundStyle(.tertiary)
                     Spacer()
                 }
@@ -231,11 +220,11 @@ struct StashView: View {
     private var stashDialog: some View {
         VStack(spacing: 16) {
             Text("Stash Changes")
-                .font(.system(.headline, design: .monospaced))
+                .font(.headline)
 
             TextField("Message (optional)", text: $stashMessage)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(.body, design: .monospaced))
+                .font(.body)
 
             HStack {
                 Button("Cancel") {
@@ -262,14 +251,14 @@ struct StashView: View {
 
     private func loadStashes() async {
         isLoading = true
-        stashes = await viewModel.loadStashes()
+        await viewModel.loadStashes()
         isLoading = false
     }
 
-    private func loadDiff(for stash: GitStash) {
+    private func loadDiff(for index: Int) {
         isLoadingDiff = true
         Task {
-            stashDiff = await viewModel.stashDiff(stash)
+            stashDiff = await viewModel.stashDiff(index: index)
             isLoadingDiff = false
         }
     }
@@ -282,94 +271,35 @@ struct StashView: View {
     }
 
     private func popTopStash() {
-        guard let top = stashes.first else { return }
-        popStash(top)
+        popStash(index: 0)
     }
 
     private func dropTopStash() {
-        guard let top = stashes.first else { return }
-        dropStash(top)
+        dropStash(index: 0)
     }
 
-    private func popStash(_ stash: GitStash) {
+    private func popStash(index: Int) {
         Task {
-            await viewModel.popStash(stash)
+            await viewModel.popStash(index: index)
             await loadStashes()
         }
     }
 
-    private func dropStash(_ stash: GitStash) {
+    private func dropStash(index: Int) {
         Task {
-            await viewModel.dropStash(stash)
+            await viewModel.dropStash(index: index)
             await loadStashes()
         }
     }
 
-    private func showDiff(_ stash: GitStash) {
-        expandedStashId = stash.id
-        loadDiff(for: stash)
+    private func showDiff(index: Int, ref: String) {
+        expandedStashId = ref
+        loadDiff(for: index)
     }
 
-    private func copyRef(_ stash: GitStash) {
+    private func copyRef(ref: String) {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(stash.ref, forType: .string)
-    }
-}
-
-// MARK: - Model
-
-struct GitStash: Identifiable, Hashable {
-    let id: String
-    let ref: String
-    let message: String
-    let timestamp: String?
-
-    init(ref: String, message: String, timestamp: String? = nil) {
-        self.id = ref
-        self.ref = ref
-        self.message = message
-        self.timestamp = timestamp
-    }
-}
-
-// MARK: - ViewModel Extension
-
-extension GitPanelViewModel {
-    func loadStashes() async -> [GitStash] {
-        let output = await runGit("stash list")
-        return output
-            .components(separatedBy: "\n")
-            .filter { !$0.isEmpty }
-            .compactMap { line -> GitStash? in
-                guard let range = line.range(of: ": ") else {
-                    return GitStash(ref: line, message: line)
-                }
-                let ref = String(line[..<range.lowerBound]).trimmingCharacters(in: .whitespaces)
-                let rest = String(line[range.upperBound...])
-                let parts = rest.split(separator: " ", maxSplits: 1)
-                let message = parts.count > 1 ? String(parts[1]) : String(parts.first ?? "")
-                return GitStash(ref: ref, message: message)
-            }
-    }
-
-    func stashDiff(_ stash: GitStash) async -> String? {
-        await runGit("stash show -p \(stash.ref)")
-    }
-
-    func stashChanges(message: String?) async {
-        if let message {
-            _ = await runGit("stash push -m \"\(message)\"")
-        } else {
-            _ = await runGit("stash push")
-        }
-    }
-
-    func popStash(_ stash: GitStash) async {
-        _ = await runGit("stash pop \(stash.ref)")
-    }
-
-    func dropStash(_ stash: GitStash) async {
-        _ = await runGit("stash drop \(stash.ref)")
+        NSPasteboard.general.setString(ref, forType: .string)
     }
 }
 

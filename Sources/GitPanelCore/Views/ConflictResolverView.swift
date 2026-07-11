@@ -19,7 +19,7 @@ struct ConflictResolverView: View {
             }
         }
         .onAppear {
-            viewModel.loadConflicts()
+            Task { await viewModel.loadConflicts() }
         }
         .overlay(alignment: .top) {
             if showSuccessBanner {
@@ -31,8 +31,10 @@ struct ConflictResolverView: View {
         .alert("Resolve All Conflicts", isPresented: $showResolveAllConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Accept Ours for All", role: .destructive) {
-                viewModel.resolveAllConflictsAcceptOurs()
-                triggerSuccessBanner()
+                Task {
+                    await viewModel.resolveAllConflictsAcceptOurs()
+                    triggerSuccessBanner()
+                }
             }
         } message: {
             Text("This will keep \"Ours\" for all \(viewModel.conflictedFiles.count) conflicted files. This action cannot be undone.")
@@ -45,23 +47,23 @@ struct ConflictResolverView: View {
         HStack(spacing: 6) {
             Button(action: onBack) {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .font(.system(size: 12, weight: .semibold))
             }
             .buttonStyle(.plain)
 
             Text("Conflicts")
-                .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                .font(.system(size: 13, weight: .semibold))
 
             Spacer()
 
             if !viewModel.conflictedFiles.isEmpty {
                 Text("\(viewModel.conflictedFiles.count) files in conflict")
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.red)
 
                 Button(action: { showResolveAllConfirmation = true }) {
                     Text("Resolve All")
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
@@ -83,7 +85,7 @@ struct ConflictResolverView: View {
                 .font(.system(size: 32))
                 .foregroundStyle(.green)
             Text("No conflicts")
-                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
             Spacer()
         }
@@ -95,30 +97,30 @@ struct ConflictResolverView: View {
     private var conflictList: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
-                ForEach(viewModel.conflictedFiles, id: \.self) { file in
-                    conflictRow(file: file)
+                ForEach(viewModel.conflictedFiles) { file in
+                    conflictRow(path: file.path)
                     Divider().padding(.leading, 12)
                 }
             }
         }
     }
 
-    private func conflictRow(file: String) -> some View {
+    private func conflictRow(path: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 10))
                     .foregroundStyle(.red)
 
-                Text(file)
+                Text(path)
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
                     .lineLimit(1)
                     .truncationMode(.middle)
 
                 Spacer()
 
-                Text("\(viewModel.conflictCount(for: file))")
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                Text("\(viewModel.conflictCount(for: path))")
+                    .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 2)
@@ -127,13 +129,13 @@ struct ConflictResolverView: View {
 
             HStack(spacing: 6) {
                 actionButton(title: "Accept Ours", color: .blue) {
-                    viewModel.acceptOurs(file: file)
+                    Task { await viewModel.acceptOurs(file: path) }
                 }
                 actionButton(title: "Accept Theirs", color: .purple) {
-                    viewModel.acceptTheirs(file: file)
+                    Task { await viewModel.acceptTheirs(file: path) }
                 }
                 actionButton(title: "Mark Resolved", color: .green) {
-                    viewModel.markResolved(file: file)
+                    Task { await viewModel.markResolved(file: path) }
                 }
             }
         }
@@ -142,17 +144,17 @@ struct ConflictResolverView: View {
         .contentShape(Rectangle())
         .background(
             RoundedRectangle(cornerRadius: 4)
-                .fill(hoveredFile == file ? Color.accentColor.opacity(0.08) : Color.clear)
+                .fill(hoveredFile == path ? Color.accentColor.opacity(0.08) : Color.clear)
         )
         .onHover { hovering in
-            hoveredFile = hovering ? file : nil
+            hoveredFile = hovering ? path : nil
         }
     }
 
     private func actionButton(title: String, color: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(color)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 3)
@@ -168,7 +170,7 @@ struct ConflictResolverView: View {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 12))
             Text("All conflicts resolved")
-                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .font(.system(size: 12, weight: .semibold))
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 12)

@@ -480,12 +480,17 @@ final class GitServiceTests: XCTestCase {
             to: tempDir.appendingPathComponent("file.txt"),
             atomically: true, encoding: .utf8
         )
+        try? await Task.sleep(for: .milliseconds(50))
 
         let service = GitService()
         let details = try await service.diffNumstat(repo: tempDir, path: "file.txt")
         XCTAssertFalse(details.isEmpty)
-        XCTAssertEqual(details.first?.path, "file.txt")
-        XCTAssertGreaterThan(details.first!.added, 0)
+        if let first = details.first {
+            XCTAssertEqual(first.path, "file.txt")
+            XCTAssertGreaterThan(first.added, 0)
+        } else {
+            XCTFail("details was empty")
+        }
     }
 
     // MARK: - Conflict Detection

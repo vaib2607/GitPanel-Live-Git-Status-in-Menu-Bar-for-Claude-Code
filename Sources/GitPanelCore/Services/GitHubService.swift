@@ -231,6 +231,7 @@ struct GitHubService {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ghPath)
         process.arguments = ["auth", "token"]
+        process.environment = ShellRunner.processEnvironment
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
@@ -252,7 +253,15 @@ struct GitHubService {
     }
 
     private func extractTokenFromConfig() -> String? {
-        let home = FileManager.default.homeDirectoryForCurrentUser
+        let homePath: String
+        if let override = ShellRunner.homeEnvironmentOverride {
+            homePath = override
+        } else if let envHome = ProcessInfo.processInfo.environment["HOME"], !envHome.isEmpty {
+            homePath = envHome
+        } else {
+            homePath = NSHomeDirectory()
+        }
+        let home = URL(fileURLWithPath: homePath)
         let configPaths = [
             home.appendingPathComponent(".config/gh/hosts.yml"),
             home.appendingPathComponent(".config/gh/config.yml"),

@@ -18,6 +18,11 @@ final class PerformanceTests: XCTestCase {
         }
     }
 
+    override func tearDown() async throws {
+        UsageService.homeDirectoryOverride = nil
+        try await super.tearDown()
+    }
+
     func testUsageServiceJSONLParsingPerformance() async throws {
         let sampleJSONL = generateJSONL(lineCount: 10000)
         // Write to temp file and compute
@@ -27,7 +32,7 @@ final class PerformanceTests: XCTestCase {
         try FileManager.default.createDirectory(at: projectsDir, withIntermediateDirectories: true)
         let logFile = projectsDir.appendingPathComponent("perf-test.jsonl")
         try sampleJSONL.write(to: logFile, atomically: true, encoding: .utf8)
-        setenv("HOME", tempDir.path, 1)
+        UsageService.homeDirectoryOverride = tempDir.path
         _ = try? await UsageService.compute()
         try? FileManager.default.removeItem(at: tempDir)
     }

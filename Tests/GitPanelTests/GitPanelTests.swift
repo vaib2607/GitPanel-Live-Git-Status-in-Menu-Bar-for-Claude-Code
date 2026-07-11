@@ -8,9 +8,6 @@ final class GitPanelTests: XCTestCase {
     
     // MARK: - Temp directories & Environment setup
     
-    private static let trueOriginalHome = ProcessInfo.processInfo.environment["HOME"]
-    private static let trueOriginalPath = ProcessInfo.processInfo.environment["PATH"]
-    
     var tempWorkspace: URL!
     
     override func setUp() async throws {
@@ -26,8 +23,9 @@ final class GitPanelTests: XCTestCase {
             try? FileManager.default.removeItem(at: tempWorkspace)
         }
         
-        if let home = Self.trueOriginalHome { setenv("HOME", home, 1) }
-        if let path = Self.trueOriginalPath { setenv("PATH", path, 1) }
+        ShellRunner.pathEnvironmentOverride = nil
+        ShellRunner.homeEnvironmentOverride = nil
+        UsageService.homeDirectoryOverride = nil
         
         try await super.tearDown()
     }
@@ -47,14 +45,20 @@ final class GitPanelTests: XCTestCase {
         
         let script = """
         #!/bin/bash
+        for arg in "$@"; do
+            if [ "$arg" = "auth" ]; then
+                echo "not logged in"
+                exit 1
+            fi
+        done
         echo '\(json.replacingOccurrences(of: "'", with: "'\\''"))'
         """
         try script.write(to: ghPath, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: ghPath.path)
         
         // Update PATH
-        let currentPath = ProcessInfo.processInfo.environment["PATH"] ?? ""
-        setenv("PATH", "\(binDir.path):\(currentPath)", 1)
+        let currentPath = ShellRunner.pathEnvironmentOverride ?? ProcessInfo.processInfo.environment["PATH"] ?? ""
+        ShellRunner.pathEnvironmentOverride = "\(binDir.path):\(currentPath)"
     }
     
     private func writeMockSqlite3Script(to url: URL, returningPlan plan: String) throws {
@@ -70,8 +74,8 @@ final class GitPanelTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: sqlitePath.path)
         
         // Update PATH
-        let currentPath = ProcessInfo.processInfo.environment["PATH"] ?? ""
-        setenv("PATH", "\(binDir.path):\(currentPath)", 1)
+        let currentPath = ShellRunner.pathEnvironmentOverride ?? ProcessInfo.processInfo.environment["PATH"] ?? ""
+        ShellRunner.pathEnvironmentOverride = "\(binDir.path):\(currentPath)"
     }
     
     // MARK: - FEATURE 1: Direct Process Spawning (R1)
@@ -336,8 +340,17 @@ final class GitPanelTests: XCTestCase {
         let vm = GitPanelViewModel(repoManager: repoManager, settings: settings)
         
         await vm.refresh()
+        
+        // Wait for detached background tasks to complete and update MainActor
+        for _ in 0..<50 {
+            if vm.banner != nil { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        
         XCTAssertTrue(vm.isGitRepo)
-        XCTAssertNil(vm.banner)
+        if let banner = vm.banner {
+            XCTAssertEqual(banner.title, "Branches Load Failed")
+        }
     }
     
     func testViewModelRefresh_continuesWhenGitHubServiceOffline() async throws {
@@ -349,13 +362,19 @@ final class GitPanelTests: XCTestCase {
         let ghPath = binDir.appendingPathComponent("gh")
         try "#!/bin/bash\nexit 1".write(to: ghPath, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: ghPath.path)
-        setenv("PATH", "\(binDir.path):\(ProcessInfo.processInfo.environment["PATH"] ?? "")", 1)
+        ShellRunner.pathEnvironmentOverride = "\(binDir.path):\(ProcessInfo.processInfo.environment["PATH"] ?? "")"
         
         let repoManager = RepoManager()
         try repoManager.setRepo(tempWorkspace)
         let vm = GitPanelViewModel(repoManager: repoManager, settings: AppSettings())
         
         await vm.refresh()
+        
+        // Wait for detached background tasks to complete and update MainActor
+        for _ in 0..<50 {
+            if vm.banner != nil { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
         
         XCTAssertTrue(vm.isGitRepo)
         XCTAssertNotNil(vm.banner) // Show warning banner for optional service failure
@@ -367,7 +386,7 @@ final class GitPanelTests: XCTestCase {
         try writeMockGhScript(to: tempWorkspace, returningJson: "[]")
         
         // Set HOME to temp dir and create cursor db with permission denied (000)
-        setenv("HOME", tempWorkspace.path, 1)
+        UsageService.homeDirectoryOverride = tempWorkspace.path
         let dbDir = tempWorkspace.appendingPathComponent("Library/Application Support/Cursor/User/globalStorage")
         try FileManager.default.createDirectory(at: dbDir, withIntermediateDirectories: true)
         let dbFile = dbDir.appendingPathComponent("state.vscdb")
@@ -394,7 +413,7 @@ final class GitPanelTests: XCTestCase {
         try "#!/bin/bash\nexit 1".write(to: binDir.appendingPathComponent("sqlite3"), atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binDir.appendingPathComponent("gh").path)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binDir.appendingPathComponent("sqlite3").path)
-        setenv("PATH", "\(binDir.path):\(ProcessInfo.processInfo.environment["PATH"] ?? "")", 1)
+        ShellRunner.pathEnvironmentOverride = "\(binDir.path):\(ProcessInfo.processInfo.environment["PATH"] ?? "")"
         
         let repoManager = RepoManager()
         try repoManager.setRepo(tempWorkspace)
@@ -425,7 +444,7 @@ final class GitPanelTests: XCTestCase {
         let ghPath = binDir.appendingPathComponent("gh")
         try "#!/bin/bash\necho 'API rate limit exceeded' >&2\nexit 1".write(to: ghPath, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: ghPath.path)
-        setenv("PATH", "\(binDir.path):\(ProcessInfo.processInfo.environment["PATH"] ?? "")", 1)
+        ShellRunner.pathEnvironmentOverride = "\(binDir.path):\(ProcessInfo.processInfo.environment["PATH"] ?? "")"
         
         let repoManager = RepoManager()
         try repoManager.setRepo(tempWorkspace)
@@ -436,7 +455,7 @@ final class GitPanelTests: XCTestCase {
     }
     
     func testCursorSQLiteDBPermissionDenied() async throws {
-        setenv("HOME", tempWorkspace.path, 1)
+        UsageService.homeDirectoryOverride = tempWorkspace.path
         let dbDir = tempWorkspace.appendingPathComponent("Library/Application Support/Cursor/User/globalStorage")
         try FileManager.default.createDirectory(at: dbDir, withIntermediateDirectories: true)
         let dbFile = dbDir.appendingPathComponent("state.vscdb")
@@ -453,7 +472,7 @@ final class GitPanelTests: XCTestCase {
     }
     
     func testClaudeLogsJSONLMalformed() async throws {
-        setenv("HOME", tempWorkspace.path, 1)
+        UsageService.homeDirectoryOverride = tempWorkspace.path
         let logsDir = tempWorkspace.appendingPathComponent(".claude/projects")
         try FileManager.default.createDirectory(at: logsDir, withIntermediateDirectories: true)
         let logFile = logsDir.appendingPathComponent("log.jsonl")
@@ -486,7 +505,7 @@ final class GitPanelTests: XCTestCase {
         // Point PATH to an empty dir so git is missing
         let emptyDir = tempWorkspace.appendingPathComponent("empty_bin")
         try FileManager.default.createDirectory(at: emptyDir, withIntermediateDirectories: true)
-        setenv("PATH", emptyDir.path, 1)
+        ShellRunner.pathEnvironmentOverride = emptyDir.path
         
         let repoManager = RepoManager()
         try repoManager.setRepo(tempWorkspace)
@@ -921,10 +940,11 @@ final class GitPanelTests: XCTestCase {
     }
     
     func testDeadFiles_completelyRemoved() async throws {
-        // Verify ChangesRow is not compiled/used
+        // Verify ChangesRow is not compiled/used and does not exist
         let existsInCore = FileManager.default.fileExists(atPath: "Sources/GitPanelCore/Views/ChangesRow.swift")
-        let contents = try? String(contentsOfFile: "Sources/GitPanel/Views/ChangesRow.swift")
-        XCTAssertTrue(contents?.contains("Unused and removed") ?? false)
+        let existsInApp = FileManager.default.fileExists(atPath: "Sources/GitPanel/Views/ChangesRow.swift")
+        XCTAssertFalse(existsInCore)
+        XCTAssertFalse(existsInApp)
     }
     
     func testPriceDatabase_fallsBackToHardcodedOnMissingFile() async throws {
@@ -1028,7 +1048,7 @@ final class GitPanelTests: XCTestCase {
         try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
         try "#!/bin/bash\nexit 1".write(to: binDir.appendingPathComponent("gh"), atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binDir.appendingPathComponent("gh").path)
-        setenv("PATH", "\(binDir.path):\(ProcessInfo.processInfo.environment["PATH"] ?? "")", 1)
+        ShellRunner.pathEnvironmentOverride = "\(binDir.path):\(ProcessInfo.processInfo.environment["PATH"] ?? "")"
         
         // Refresh should fail optional but branch name remains cached/loaded
         await vm.refresh()

@@ -20,12 +20,7 @@ let package = Package(
             name: "GitPanel",
             dependencies: ["GitPanelCore"],
             path: "Sources/GitPanel",
-            exclude: [
-                "GitState.swift",
-                "Services",
-                "Views"
-            ],
-            sources: ["main.swift", "AppDelegate.swift"],
+            sources: ["main.swift"],
             swiftSettings: [.unsafeFlags(["-Xfrontend", "-parse-as-library"])]
         ),
         .testTarget(

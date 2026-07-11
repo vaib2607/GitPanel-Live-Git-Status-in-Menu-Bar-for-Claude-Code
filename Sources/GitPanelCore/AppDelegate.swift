@@ -65,19 +65,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             let isShift = flags.contains(.shift)
 
             if isCmd {
-                switch event.keyCode {
-                case 15: // Cmd+R
+                let chars = event.charactersIgnoringModifiers ?? ""
+                if chars.lowercased() == "r" {
                     Task { await self.viewModel.refresh() }
                     return nil
-                case 36: // Enter
+                } else if chars == "\r" || chars == "\n" || chars == "\u{0003}" {
                     if isShift {
                         Task { await self.viewModel.commitAndPush() }
                     } else {
                         Task { await self.viewModel.commit() }
                     }
                     return nil
-                default:
-                    break
                 }
             }
             return event

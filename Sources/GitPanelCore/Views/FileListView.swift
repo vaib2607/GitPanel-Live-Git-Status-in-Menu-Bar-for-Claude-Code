@@ -19,7 +19,6 @@ struct FileListView: View {
             .padding(.vertical, 4)
         }
         .background(Color(nsColor: .controlBackgroundColor))
-        .font(.system(.body, design: .monospaced))
     }
 
     // MARK: - Empty State
@@ -80,7 +79,7 @@ struct FileListView: View {
     private func sectionHeader(title: String, count: Int) -> some View {
         HStack {
             Text("\(title) (\(count))")
-                .font(.system(.caption, weight: .semibold, design: .monospaced))
+                .font(.system(.caption, weight: .semibold))
                 .foregroundStyle(.secondary)
             Spacer()
         }
@@ -101,10 +100,12 @@ struct FileListView: View {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 4) {
                     Text(file.filename)
+                        .font(.system(.body, design: .monospaced))
                         .lineLimit(1)
                         .truncationMode(.middle)
                     if file.status == .renamed, let oldName = file.oldFilename {
                         Text(oldName)
+                            .font(.system(.body, design: .monospaced))
                             .foregroundStyle(.tertiary)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -209,5 +210,5 @@ struct FileListView: View {
 // MARK: - Preview
 
 #Preview {
-    FileListView(viewModel: GitPanelViewModel.preview)
+    FileListView(viewModel: GitPanelViewModel())
 }

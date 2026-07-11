@@ -1,7 +1,11 @@
 import SwiftUI
 
-enum PanelRoute {
+enum PanelRoute: Hashable {
     case main, branch, environment, usage, repositoryInfo
+    case fileList
+    case diffViewer(String)
+    case stash
+    case conflicts
 }
 
 struct EnvironmentPanel: View {
@@ -29,6 +33,17 @@ struct EnvironmentPanel: View {
                 UsageView(viewModel: viewModel)
             case .repositoryInfo:
                 RepositoryInfoView(viewModel: viewModel)
+            case .fileList:
+                FileListView(viewModel: viewModel)
+            case .diffViewer(let path):
+                DiffViewerView(viewModel: viewModel, filePath: path, onBack: {
+                    viewModel.showingDiffFor = nil
+                    route = .fileList
+                })
+            case .stash:
+                StashView(viewModel: viewModel, onBack: { route = .main })
+            case .conflicts:
+                ConflictResolverView(viewModel: viewModel, onBack: { route = .main })
             }
         }
         .padding(16)
@@ -57,6 +72,11 @@ struct EnvironmentPanel: View {
                     .padding(12)
             }
         }
+        .onChange(of: viewModel.showingDiffFor) { _, newValue in
+            if let path = newValue {
+                route = .diffViewer(path)
+            }
+        }
     }
 
     // MARK: - Header
@@ -65,7 +85,14 @@ struct EnvironmentPanel: View {
         HStack(spacing: 8) {
             if route != .main {
                 Button {
-                    route = .main
+                    switch route {
+                    case .repositoryInfo, .usage:
+                        route = .environment
+                    case .diffViewer:
+                        route = .fileList
+                    default:
+                        route = .main
+                    }
                 } label: {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 13, weight: .medium))
@@ -76,7 +103,7 @@ struct EnvironmentPanel: View {
                 .buttonStyle(.plain)
                 .help("Back")
                 .accessibilityLabel("Go back")
-                .accessibilityHint("Returns to the main panel")
+                .accessibilityHint("Returns to the previous panel")
             }
             Image(systemName: "terminal")
                 .font(.system(size: 14, weight: .semibold))
@@ -109,6 +136,10 @@ struct EnvironmentPanel: View {
         case .environment: return "Continue in"
         case .usage: return "Usage"
         case .repositoryInfo: return "Repository Info"
+        case .fileList: return "Changed Files"
+        case .diffViewer: return "Diff"
+        case .stash: return "Stash"
+        case .conflicts: return "Conflicts"
         default: return "Environment"
         }
     }
@@ -140,6 +171,18 @@ struct EnvironmentPanel: View {
                     AheadBehindBadges(state: viewModel.state)
                         .padding(.horizontal, 12)
                         .padding(.bottom, 8)
+                }
+
+                PanelDivider()
+
+                NavigationRow(icon: "doc.on.doc", title: "Changed Files", count: viewModel.stagedFiles.count + viewModel.unstagedFiles.count + viewModel.untrackedFiles.count) {
+                    route = .fileList
+                }
+                NavigationRow(icon: "tray", title: "Stash", count: viewModel.stashEntries.count) {
+                    route = .stash
+                }
+                NavigationRow(icon: "exclamationmark.triangle", title: "Conflicts", count: viewModel.conflictedFiles.count) {
+                    route = .conflicts
                 }
 
                 PanelDivider()
@@ -290,3 +333,39 @@ struct BannerView: View {
         .accessibilityLabel("\(banner.title): \(banner.detail ?? "")")
     }
 }
+
+struct NavigationRow: View {
+    let icon: String
+    let title: String
+    let count: Int
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18)
+                Text(title)
+                    .font(.system(size: 13))
+                Spacer()
+                Text("\(count)")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .background(Color.secondary.opacity(0.12), in: Capsule())
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .frame(minHeight: 32)
+        .padding(.horizontal, 8)
+        .hoverable(radius: 6)
+    }
+}
+

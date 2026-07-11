@@ -41,6 +41,36 @@ private final class DataBox: @unchecked Sendable {
 }
 
 struct ShellRunner {
+    private static let lock = NSLock()
+    private static var _pathEnvironmentOverride: String?
+    private static var _homeEnvironmentOverride: String?
+
+    static var pathEnvironmentOverride: String? {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return _pathEnvironmentOverride
+        }
+        set {
+            lock.lock()
+            defer { lock.unlock() }
+            _pathEnvironmentOverride = newValue
+        }
+    }
+
+    static var homeEnvironmentOverride: String? {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return _homeEnvironmentOverride
+        }
+        set {
+            lock.lock()
+            defer { lock.unlock() }
+            _homeEnvironmentOverride = newValue
+        }
+    }
+
     private static let resolvedPath: String = {
         let homebrewPath = "/opt/homebrew/bin"
         let localBinPath = "/usr/local/bin"
@@ -48,13 +78,17 @@ struct ShellRunner {
         return "\(homebrewPath):\(localBinPath):\(systemPath)"
     }()
 
-    private static var processEnvironment: [String: String] {
+    static var processEnvironment: [String: String] {
         var env = ProcessInfo.processInfo.environment
-        if let pathVal = getenv("PATH") {
-            env["PATH"] = String(cString: pathVal)
+        if let pathOverride = pathEnvironmentOverride {
+            env["PATH"] = pathOverride
+        } else if let pathVal = ProcessInfo.processInfo.environment["PATH"] {
+            env["PATH"] = pathVal
         }
-        if let homeVal = getenv("HOME") {
-            env["HOME"] = String(cString: homeVal)
+        if let homeOverride = homeEnvironmentOverride {
+            env["HOME"] = homeOverride
+        } else if let homeVal = ProcessInfo.processInfo.environment["HOME"] {
+            env["HOME"] = homeVal
         }
         let existing = env["PATH"] ?? ""
         if existing.isEmpty {

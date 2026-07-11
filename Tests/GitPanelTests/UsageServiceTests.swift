@@ -4,7 +4,6 @@ import XCTest
 final class UsageServiceTests: XCTestCase {
 
     private var tempDir: URL!
-    private var originalHome: String?
 
     override func setUp() async throws {
         try await super.setUp()
@@ -12,13 +11,10 @@ final class UsageServiceTests: XCTestCase {
             .appendingPathComponent(UUID().uuidString)
             .resolvingSymlinksInPath()
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        originalHome = ProcessInfo.processInfo.environment["HOME"]
     }
 
     override func tearDown() async throws {
-        if let home = originalHome {
-            setenv("HOME", home, 1)
-        }
+        UsageService.homeDirectoryOverride = nil
         if FileManager.default.fileExists(atPath: tempDir.path) {
             try? FileManager.default.removeItem(at: tempDir)
         }
@@ -33,7 +29,7 @@ final class UsageServiceTests: XCTestCase {
         try FileManager.default.createDirectory(at: projectsDir, withIntermediateDirectories: true)
         let logFile = projectsDir.appendingPathComponent("test-log.jsonl")
         try jsonlContent.write(to: logFile, atomically: true, encoding: .utf8)
-        setenv("HOME", homeDir.path, 1)
+        UsageService.homeDirectoryOverride = homeDir.path
         return homeDir.path
     }
 
@@ -388,7 +384,7 @@ final class UsageServiceTests: XCTestCase {
         try makeJSONLLine(model: "gpt-4o", inputTokens: 200, outputTokens: 100)
             .write(to: file2, atomically: true, encoding: .utf8)
 
-        setenv("HOME", homeDir.path, 1)
+        UsageService.homeDirectoryOverride = homeDir.path
 
         let data = try await UsageService.compute()
         // 100+50+200+100 = 450
@@ -406,7 +402,7 @@ final class UsageServiceTests: XCTestCase {
             .write(to: file1, atomically: true, encoding: .utf8)
         try "not json".write(to: file2, atomically: true, encoding: .utf8)
 
-        setenv("HOME", homeDir.path, 1)
+        UsageService.homeDirectoryOverride = homeDir.path
 
         let data = try await UsageService.compute()
         XCTAssertEqual(data.tokens, 150)
@@ -417,7 +413,7 @@ final class UsageServiceTests: XCTestCase {
     func testMissingProjectsDirectory() async throws {
         let homeDir = tempDir.appendingPathComponent("emptyhome")
         try FileManager.default.createDirectory(at: homeDir, withIntermediateDirectories: true)
-        setenv("HOME", homeDir.path, 1)
+        UsageService.homeDirectoryOverride = homeDir.path
 
         // UsageService uses static state, so we may get stale data from previous tests
         // Just verify it doesn't crash
@@ -429,7 +425,7 @@ final class UsageServiceTests: XCTestCase {
         let homeDir = tempDir.appendingPathComponent("emptyprojects")
         let projectsDir = homeDir.appendingPathComponent(".claude/projects")
         try FileManager.default.createDirectory(at: projectsDir, withIntermediateDirectories: true)
-        setenv("HOME", homeDir.path, 1)
+        UsageService.homeDirectoryOverride = homeDir.path
 
         // UsageService uses static state, just verify no crash
         let data = try await UsageService.compute()

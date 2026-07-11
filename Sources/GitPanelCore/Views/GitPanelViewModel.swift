@@ -19,6 +19,9 @@ import Combine
     var environmentMode: EnvironmentMode = .production
     var isPerformingGitOperation: Bool = false
     var currentDiff: String = ""
+    var stagedFiles: [GitFile] = []
+    var unstagedFiles: [GitFile] = []
+    var untrackedFiles: [GitFile] = []
 
     // MARK: - Dependencies
     let gitService = GitService()
@@ -82,71 +85,76 @@ import Combine
             return
         }
 
-        // Optional Git branches
-        async let branchesResult: Result<[GitBranch], Error>? = {
+        // Fetch changed files
+        do {
+            let files = try await gitService.fetchChangedFiles(repo: repo)
+            self.stagedFiles = files.staged
+            self.unstagedFiles = files.unstaged
+            self.untrackedFiles = files.untracked
+        } catch {
+            showBanner("Failed to load changes list", detail: error.localizedDescription, kind: .warning)
+        }
+
+        // Optional Git branches in detached background Task
+        Task.detached { [weak self, gitService] in
             do {
                 let fetched = try await gitService.branches(repo: repo)
-                return .success(fetched)
+                await self?.updateBranches(fetched)
             } catch {
-                return .failure(error)
+                await self?.showBanner("Branches Load Failed", detail: error.localizedDescription, kind: .warning)
             }
-        }()
+        }
 
-        // Optional GitHub status
-        async let prStatusResult: Result<PRStatus, Error>? = {
+        // Optional GitHub status in detached background Task
+        Task.detached { [weak self, githubService] in
             do {
                 let pr = try await githubService.prStatus(repo: repo)
-                return .success(pr)
+                await self?.updatePRStatus(pr)
             } catch {
-                return .failure(error)
+                await self?.showBanner("GitHub Sync Failed", detail: error.localizedDescription, kind: .warning)
             }
-        }()
+        }
 
-        // Optional Usage metrics (refresh when empty or every 30s)
+        // Optional Usage metrics (refresh when empty or every 30s) in detached background Task
         let currentUsageTokens = self.usage.tokens
         let currentUsageCost = self.usage.cost
         let lastRefresh = self.lastUsageRefresh
         let shouldRefreshUsage = currentUsageTokens == 0 || currentUsageCost == 0 ||
             Date().timeIntervalSince(lastRefresh) > 30
-        async let usageResult: Result<UsageData, Error>? = {
-            guard shouldRefreshUsage else { return nil }
-            do {
-                let u = try await UsageService.compute()
-                return .success(u)
-            } catch {
-                return .failure(error)
+
+        if shouldRefreshUsage {
+            Task.detached { [weak self] in
+                do {
+                    let u = try await UsageService.compute()
+                    await self?.updateUsage(u)
+                } catch {
+                    await self?.showBanner("Usage Sync Failed", detail: error.localizedDescription, kind: .warning)
+                }
             }
-        }()
-
-        // Now await and process on the MainActor
-        switch await branchesResult {
-        case .success(let fetchedBranches):
-            self.branches = fetchedBranches
-        case .failure(let error):
-            showBanner("Branches Load Failed", detail: error.localizedDescription, kind: .warning)
-        case nil:
-            break
         }
 
-        switch await prStatusResult {
-        case .success(let fetchedPRStatus):
-            self.prStatus = fetchedPRStatus
-        case .failure(let error):
-            self.prStatus = .noPRs
-            showBanner("GitHub Sync Failed", detail: error.localizedDescription, kind: .warning)
-        case nil:
-            break
+        // Load stashes in detached background Task
+        Task.detached { [weak self] in
+            await self?.loadStashes()
         }
 
-        switch await usageResult {
-        case .success(let fetchedUsage):
-            self.usage = fetchedUsage
-            self.lastUsageRefresh = Date()
-        case .failure(let error):
-            showBanner("Usage Sync Failed", detail: error.localizedDescription, kind: .warning)
-        case nil:
-            break
+        // Load conflicts in detached background Task
+        Task.detached { [weak self] in
+            await self?.loadConflicts()
         }
+    }
+
+    func updateBranches(_ fetchedBranches: [GitBranch]) {
+        self.branches = fetchedBranches
+    }
+
+    func updatePRStatus(_ fetchedPRStatus: PRStatus) {
+        self.prStatus = fetchedPRStatus
+    }
+
+    func updateUsage(_ fetchedUsage: UsageData) {
+        self.usage = fetchedUsage
+        self.lastUsageRefresh = Date()
     }
 
     // MARK: - Git Operations
@@ -458,6 +466,7 @@ import Combine
     }
 
     func stashChanges(message: String? = nil) async {
+        guard !isPerformingGitOperation else { return }
         let repo = repoManager.repoURL
         guard !repo.path.isEmpty else { return }
         isPerformingGitOperation = true
@@ -472,15 +481,15 @@ import Combine
         }
     }
 
-    func popStash() async {
+    func popStash(index: Int = 0) async {
+        guard !isPerformingGitOperation else { return }
         let repo = repoManager.repoURL
-        guard !repo.path.isEmpty else { return }
         isPerformingGitOperation = true
         defer { isPerformingGitOperation = false }
         do {
-            try await gitService.stashPop(repo: repo)
+            try await gitService.stashPop(repo: repo, index: index)
             showBanner("Stash popped", kind: .success)
-            await refresh()
+            await refreshAfterOperation()
             await loadStashes()
         } catch {
             showBanner("Stash pop failed", detail: error.localizedDescription, kind: .error)
@@ -488,6 +497,7 @@ import Combine
     }
 
     func dropStash(index: Int = 0) async {
+        guard !isPerformingGitOperation else { return }
         let repo = repoManager.repoURL
         guard !repo.path.isEmpty else { return }
         isPerformingGitOperation = true
@@ -526,6 +536,7 @@ import Combine
     }
 
     func acceptOurs(file: String) async {
+        guard !isPerformingGitOperation else { return }
         let repo = repoManager.repoURL
         guard !repo.path.isEmpty else { return }
         isPerformingGitOperation = true
@@ -541,6 +552,7 @@ import Combine
     }
 
     func acceptTheirs(file: String) async {
+        guard !isPerformingGitOperation else { return }
         let repo = repoManager.repoURL
         guard !repo.path.isEmpty else { return }
         isPerformingGitOperation = true
@@ -556,6 +568,7 @@ import Combine
     }
 
     func markResolved(file: String) async {
+        guard !isPerformingGitOperation else { return }
         let repo = repoManager.repoURL
         guard !repo.path.isEmpty else { return }
         isPerformingGitOperation = true
@@ -571,6 +584,7 @@ import Combine
     }
 
     func resolveAllConflictsAcceptOurs() async {
+        guard !isPerformingGitOperation else { return }
         let repo = repoManager.repoURL
         guard !repo.path.isEmpty else { return }
         isPerformingGitOperation = true
@@ -591,4 +605,39 @@ import Combine
     // MARK: - Navigation
 
     var showingDiffFor: String? = nil
+
+    func conflictCount(for path: String) -> Int {
+        let repo = repoManager.repoURL
+        let fileUrl = repo.appendingPathComponent(path)
+        guard let content = try? String(contentsOf: fileUrl, encoding: .utf8) else { return 0 }
+        let markers = content.components(separatedBy: "<<<<<<<").count - 1
+        return max(1, markers)
+    }
+
+    func stage(_ file: GitFile) {
+        Task { await stageFile(file.filename) }
+    }
+    
+    func unstage(_ file: GitFile) {
+        Task { await unstageFile(file.filename) }
+    }
+    
+    func discard(_ file: GitFile) {
+        Task { await discardChanges(file.filename) }
+    }
+    
+    func showInFinder(_ file: GitFile) {
+        let repo = repoManager.repoURL
+        let fileUrl = repo.appendingPathComponent(file.filename)
+        NSWorkspace.shared.activateFileViewerSelecting([fileUrl])
+    }
+    
+    func copyPath(_ file: GitFile) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(file.filename, forType: .string)
+    }
+
+    func showDiff(for file: GitFile) {
+        showingDiffFor = file.filename
+    }
 }

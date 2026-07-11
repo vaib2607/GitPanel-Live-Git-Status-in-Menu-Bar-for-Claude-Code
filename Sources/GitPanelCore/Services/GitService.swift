@@ -15,6 +15,7 @@ struct GitService {
         return "/usr/local/bin/gh"
     }()
 
+    @discardableResult
     private static func git(_ args: [String], repo: URL) async throws -> String {
         try await ShellRunner.run(gitPath, args, at: repo.path)
     }
@@ -431,8 +432,8 @@ struct GitService {
         }
     }
 
-    func stashPop(repo: URL) async throws {
-        try await Self.git(["stash", "pop"], repo: repo)
+    func stashPop(repo: URL, index: Int = 0) async throws {
+        try await Self.git(["stash", "pop", "stash@{\(index)}"], repo: repo)
     }
 
     func stashDrop(repo: URL, index: Int = 0) async throws {
@@ -481,10 +482,14 @@ struct GitService {
 
     func diffNumstat(repo: URL, path: String? = nil) async throws -> [(path: String, added: Int, deleted: Int)] {
         let output: String
-        if let path = path {
-            output = try await Self.git(["diff", "HEAD", "--numstat", "--", path], repo: repo)
-        } else {
-            output = try await Self.git(["diff", "HEAD", "--numstat"], repo: repo)
+        do {
+            if let path = path {
+                output = try await Self.git(["diff", "HEAD", "--numstat", "--", path], repo: repo)
+            } else {
+                output = try await Self.git(["diff", "HEAD", "--numstat"], repo: repo)
+            }
+        } catch {
+            return []
         }
         return Self.parseNumstatDetail(output)
     }
@@ -513,6 +518,92 @@ struct GitService {
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss Z"
         formatter.locale = Locale(identifier: "en_US_POSIX")
         return formatter.date(from: string)
+    }
+
+    func diffCachedNumstatDetail(repo: URL) async throws -> [(path: String, added: Int, deleted: Int)] {
+        do {
+            let output = try await Self.git(["diff", "--cached", "--numstat"], repo: repo)
+            return Self.parseNumstatDetail(output)
+        } catch {
+            return []
+        }
+    }
+
+    func fetchChangedFiles(repo: URL) async throws -> (staged: [GitFile], unstaged: [GitFile], untracked: [GitFile]) {
+        let output = try await Self.git(["status", "--porcelain=v2"], repo: repo)
+        let numstatList = try await diffNumstat(repo: repo, path: nil)
+        let cachedNumstatList = try await diffCachedNumstatDetail(repo: repo)
+        
+        var stagedMap: [String: (added: Int, deleted: Int)] = [:]
+        for item in cachedNumstatList {
+            stagedMap[item.path] = (item.added, item.deleted)
+        }
+        var unstagedMap: [String: (added: Int, deleted: Int)] = [:]
+        for item in numstatList {
+            unstagedMap[item.path] = (item.added, item.deleted)
+        }
+        
+        var stagedFiles: [GitFile] = []
+        var unstagedFiles: [GitFile] = []
+        var untrackedFiles: [GitFile] = []
+        
+        for line in output.split(separator: "\n") {
+            let s = String(line)
+            if s.hasPrefix("?") {
+                let path = String(s.dropFirst(2)).trimmingCharacters(in: .whitespacesAndNewlines)
+                untrackedFiles.append(GitFile(filename: path, status: .untracked, additions: 0, deletions: 0))
+            } else if s.first == "1" || s.first == "2" {
+                let cols = s.split(separator: " ")
+                guard cols.count >= 2 else { continue }
+                let xy = String(cols[1])
+                let x = xy.first!
+                let y = xy.last!
+                
+                let parts = s.components(separatedBy: " ")
+                if s.first == "1" && parts.count >= 9 {
+                    let path = parts.dropFirst(8).joined(separator: " ")
+                    if x != "." && x != "?" {
+                        let stat = statusFromChar(x)
+                        let diff = stagedMap[path] ?? (0, 0)
+                        stagedFiles.append(GitFile(filename: path, status: stat, additions: diff.added, deletions: diff.deleted))
+                    }
+                    if y != "." && y != "?" {
+                        let stat = statusFromChar(y)
+                        let diff = unstagedMap[path] ?? (0, 0)
+                        unstagedFiles.append(GitFile(filename: path, status: stat, additions: diff.added, deletions: diff.deleted))
+                    }
+                } else if s.first == "2" && parts.count >= 10 {
+                    let lineParts = s.split(separator: "\t")
+                    let pathPart = String(lineParts.first ?? "")
+                    let origPath = lineParts.count > 1 ? String(lineParts[1]) : nil
+                    let pathCols = pathPart.split(separator: " ")
+                    if pathCols.count >= 10 {
+                        let path = String(pathCols[9])
+                        if x != "." && x != "?" {
+                            let stat = statusFromChar(x)
+                            let diff = stagedMap[path] ?? (0, 0)
+                            stagedFiles.append(GitFile(filename: path, oldFilename: origPath, status: stat, additions: diff.added, deletions: diff.deleted))
+                        }
+                        if y != "." && y != "?" {
+                            let stat = statusFromChar(y)
+                            let diff = unstagedMap[path] ?? (0, 0)
+                            unstagedFiles.append(GitFile(filename: path, oldFilename: origPath, status: stat, additions: diff.added, deletions: diff.deleted))
+                        }
+                    }
+                }
+            }
+        }
+        return (stagedFiles, unstagedFiles, untrackedFiles)
+    }
+    
+    private func statusFromChar(_ c: Character) -> GitFileStatus {
+        switch c {
+        case "A": return .added
+        case "D": return .deleted
+        case "R": return .renamed
+        case "C": return .copied
+        default: return .modified
+        }
     }
 
     private static func parseNumstatDetail(_ output: String) -> [(path: String, added: Int, deleted: Int)] {
