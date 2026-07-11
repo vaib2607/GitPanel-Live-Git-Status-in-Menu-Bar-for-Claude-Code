@@ -2,13 +2,35 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>com.apple.security.cs.allow-jit</key>
-    <true/>
-    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
-    <true/>
+    <!--
+    Security entitlements for GitPanel.
+
+    REMOVED:
+    - com.apple.security.cs.allow-unsigned-executable-memory
+      DANGEROUS: Bypasses code signing enforcement, allowing unsigned code
+      to be mapped into memory. This defeats a key security control that
+      prevents execution of tampered binaries. Required only by JIT
+      compilers (e.g., JavaScriptCore) — GitPanel is a native SwiftUI app
+      and does not need this.
+
+    - com.apple.security.cs.allow-jit
+      DANGEROUS: Permits mapping memory pages as both writable and
+      executable simultaneously. This is an attack surface for code
+      injection exploits. Only required by apps embedding a JavaScript
+      engine (WebKit/JSCore). GitPanel uses standard APIs with no JIT.
+
+    RETAINED:
+    - com.apple.security.network.client
+      Allows outbound network connections for GitHub API calls.
+
+    - com.apple.security.files.user-selected.read-write
+      Allows read/write access to files and folders explicitly chosen by
+      the user via NSOpenPanel (repo selection).
+    -->
+
     <key>com.apple.security.network.client</key>
     <true/>
-    <key>com.apple.security.files.user-selected.read-only</key>
+    <key>com.apple.security.files.user-selected.read-write</key>
     <true/>
 </dict>
 </plist>

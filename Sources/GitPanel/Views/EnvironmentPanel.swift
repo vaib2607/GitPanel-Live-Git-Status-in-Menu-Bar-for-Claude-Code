@@ -2,6 +2,7 @@ import SwiftUI
 
 enum PanelRoute {
     case main, branch, environment, usage, repositoryInfo
+    case fileList, diffViewer(String), stash, conflicts
 }
 
 struct EnvironmentPanel: View {
@@ -11,6 +12,7 @@ struct EnvironmentPanel: View {
     @State private var showRepoPicker = false
     @State private var isDragTargeted = false
     @State private var isHovered = false
+    @State private var isRowHovered = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -27,7 +29,15 @@ struct EnvironmentPanel: View {
             case .usage:
                 UsageView(viewModel: viewModel)
             case .repositoryInfo:
-                RepositoryInfoView(viewModel: viewModel, onBack: { route = .main })
+                RepositoryInfoView(viewModel: viewModel)
+            case .fileList:
+                FileListView(viewModel: viewModel)
+            case .diffViewer(let path):
+                DiffViewerView(viewModel: viewModel, filePath: path, onBack: { route = .fileList })
+            case .stash:
+                StashView(viewModel: viewModel, onBack: { route = .main })
+            case .conflicts:
+                ConflictResolverView(viewModel: viewModel, onBack: { route = .main })
             }
         }
         .padding(16)
@@ -45,7 +55,7 @@ struct EnvironmentPanel: View {
         .onDrop(of: [.fileURL], delegate: DropHandler(viewModel: viewModel, isTargeted: $isDragTargeted))
         .sheet(isPresented: $showRepoPicker) {
             RepoPicker(onPicked: { url in
-                repoManager.setRepo(url)
+                try? repoManager.setRepo(url)
                 Task { await viewModel.refresh() }
                 viewModel.startWatching()
             })
@@ -67,32 +77,36 @@ struct EnvironmentPanel: View {
                     route = .main
                 } label: {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 13, weight: .medium, design: .monospaced))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.secondary)
                         .frame(width: 24, height: 24)
                         .hoverable(radius: 6)
                 }
                 .buttonStyle(.plain)
                 .help("Back")
+                .accessibilityLabel("Go back")
+                .accessibilityHint("Returns to the main panel")
             }
             Image(systemName: "terminal")
-                .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.primary)
             Text(route == .main ? "Environment" : title(for: route))
-                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                .font(.system(size: 13, weight: .medium))
             Spacer()
             if route == .main {
                 Button {
                     showRepoPicker = true
                 } label: {
                     Image(systemName: "plus")
-                        .font(.system(size: 13, weight: .medium, design: .monospaced))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.secondary)
                         .frame(width: 24, height: 24)
                         .hoverable(radius: 6)
                 }
                 .buttonStyle(.plain)
                 .help("Select repository")
+                .accessibilityLabel("Add repository")
+                .accessibilityHint("Opens the repository picker to select a repository")
             }
         }
         .frame(height: 28)
@@ -104,6 +118,10 @@ struct EnvironmentPanel: View {
         case .environment: return "Continue in"
         case .usage: return "Usage"
         case .repositoryInfo: return "Repository Info"
+        case .fileList: return "Changed Files"
+        case .diffViewer: return "Diff"
+        case .stash: return "Stash"
+        case .conflicts: return "Conflicts"
         default: return "Environment"
         }
     }
@@ -144,6 +162,38 @@ struct EnvironmentPanel: View {
                     route = .branch
                 }
 
+                // Navigation rows
+                navigationRow(
+                    icon: "doc.text",
+                    title: "Changed Files",
+                    badge: changedFilesCount > 0 ? "\(changedFilesCount)" : nil,
+                    badgeColor: .orange
+                ) {
+                    route = .fileList
+                }
+
+                navigationRow(
+                    icon: "tray.and.arrow.down",
+                    title: "Stash",
+                    badge: stashCount > 0 ? "\(stashCount)" : nil,
+                    badgeColor: .purple
+                ) {
+                    route = .stash
+                }
+
+                if viewModel.state.conflictCount > 0 {
+                    navigationRow(
+                        icon: "exclamationmark.triangle",
+                        title: "Conflicts",
+                        badge: "\(viewModel.state.conflictCount)",
+                        badgeColor: .red
+                    ) {
+                        route = .conflicts
+                    }
+                }
+
+                PanelDivider()
+
                 // Commit section
                 CommitSection(viewModel: viewModel)
 
@@ -159,34 +209,82 @@ struct EnvironmentPanel: View {
         }
     }
 
+    // MARK: - Computed counts
+
+    private var changedFilesCount: Int {
+        viewModel.state.stagedCount + viewModel.state.unstagedCount + viewModel.state.untrackedCount
+    }
+
+    private var stashCount: Int {
+        viewModel.stashEntries.count
+    }
+
+    // MARK: - Navigation row
+
+    private func navigationRow(
+        icon: String,
+        title: String,
+        badge: String?,
+        badgeColor: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18)
+                Text(title)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.primary)
+                Spacer()
+                if let badge {
+                    Text(badge)
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(badgeColor, in: Capsule())
+                }
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .buttonStyle(.plain)
+        .frame(minHeight: 32)
+        .padding(.horizontal, 8)
+        .hoverable()
+        .contentShape(Rectangle())
+    }
+
     private var notAGitRepoView: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Not a git repository")
-                .font(.system(size: 13, design: .monospaced))
+                .font(.system(size: 13))
                 .foregroundStyle(.secondary)
             Text(repoManager.repoURL.path)
-                .font(.system(size: 11, design: .monospaced))
+                .font(.system(size: 11, design: .monospaced)) // Path is monospaced
                 .foregroundStyle(.tertiary)
                 .textSelection(.enabled)
         }
     }
 
     private var repoHeaderCard: some View {
-        @State var isRowHovered = false
-        return HStack(spacing: 8) {
+        HStack(spacing: 8) {
             // Repo icon
             Image(systemName: "folder.fill")
-                .font(.system(size: 18, design: .monospaced))
+                .font(.system(size: 18))
                 .foregroundStyle(.primary)
                 .frame(width: 24)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(viewModel.state.repoName)
-                    .font(.system(size: 13, weight: .medium, design: .monospaced))
+                    .font(.system(size: 13, weight: .medium))
                     .lineLimit(1)
                 HStack(spacing: 6) {
                     Text(viewModel.currentBranch)
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                     RepoStateBadge(state: viewModel.state.repoState)
@@ -197,16 +295,23 @@ struct EnvironmentPanel: View {
             if viewModel.isRefreshing {
                 ProgressView()
                     .controlSize(.small)
+                    .accessibilityLabel("Refreshing repository")
             }
         }
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor))
+                .fill(Color(nsColor: isRowHovered ? .selectedControlColor : .controlBackgroundColor))
         )
         .padding(.bottom, 8)
         .contentShape(Rectangle())
         .onHover { hovering in isRowHovered = hovering }
+        .onTapGesture {
+            route = .environment
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Repository: \(viewModel.state.repoName), branch: \(viewModel.currentBranch)")
+        .accessibilityHint("Tap to open environment options")
         .contextMenu {
             Button("Refresh") { Task { await viewModel.refresh() } }
             Divider()
@@ -260,10 +365,10 @@ struct BannerView: View {
                 .foregroundStyle(banner.kind == .success ? .green : .red)
             VStack(alignment: .leading, spacing: 2) {
                 Text(banner.title)
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .font(.system(size: 12, weight: .medium))
                 if let detail = banner.detail {
                     Text(detail)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                 }
@@ -275,5 +380,7 @@ struct BannerView: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(Color(nsColor: .controlBackgroundColor))
         )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(banner.title): \(banner.detail ?? "")")
     }
 }

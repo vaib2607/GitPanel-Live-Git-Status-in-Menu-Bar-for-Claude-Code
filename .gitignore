@@ -19,3 +19,6 @@ icon-variants/
 
 # Temporary
 *.tmp
+
+# Agent working files
+.agents/

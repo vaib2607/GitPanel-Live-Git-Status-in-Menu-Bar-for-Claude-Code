@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/platform-macOS%2013%2B-blue?style=flat-square" alt="Platform">
+  <img src="https://img.shields.io/badge/platform-macOS%2014%2B-blue?style=flat-square" alt="Platform">
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License">
   <img src="https://img.shields.io/badge/status-open%20source-orange?style=flat-square" alt="Status">
   <img src="https://img.shields.io/badge/built%20with-Swift%205.9-red?style=flat-square" alt="Swift">
@@ -160,7 +160,7 @@ See your **real token counts** and **cost** from Claude Code offline logs. Best-
 
 | Requirement | Required | Notes |
 |-------------|----------|-------|
-| macOS 13.0+ | ✅ | Ventura or later |
+| macOS 14.0+ | ✅ | Sonoma or later |
 | Git | ✅ | Pre-installed on macOS |
 | `gh` (GitHub CLI) | ❌ | Optional, for PR status |
 | Xcode CLI Tools | ❌ | Only needed to build from source |
